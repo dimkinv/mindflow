@@ -7,6 +7,7 @@ type LineDash = "solid" | "dashed" | "dotted";
 type NodeItem = { id: string; text: string; x: number; y: number; color: string; parentId?: string };
 type EdgeItem = { id: string; from: string; to: string; color: string; shape: LineShape; dash: LineDash; manual?: boolean };
 type BoardData = { nodes: NodeItem[]; edges: EdgeItem[] };
+type MapSummary = { id: string; title: string; updatedAt: string; editToken: string };
 
 const COLORS = ["#ff5c35", "#ffad1f", "#ffd43b", "#6fd83d", "#26c6b7", "#20b8e5", "#4d7df3", "#7a4cff", "#c64ee8", "#f43fa4"];
 const NODE_W = 176;
@@ -61,6 +62,9 @@ export function MindMapApp() {
   const [lineOpen, setLineOpen] = useState(false);
   const [colorOpen, setColorOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [maps, setMaps] = useState<MapSummary[]>([]);
+  const [libraryState, setLibraryState] = useState<"idle" | "loading" | "error">("idle");
   const [menu, setMenu] = useState<{ x: number; y: number; nodeId: string } | null>(null);
   const [connectFrom, setConnectFrom] = useState<string | null>(null);
   const [mapId, setMapId] = useState<string | null>(null);
@@ -179,6 +183,22 @@ export function MindMapApp() {
     markChanged();
   };
 
+  const loadLibrary = async () => {
+    setLibraryOpen(true); setLibraryState("loading");
+    try {
+      const res = await fetch("/api/maps");
+      const body = await res.json(); if (!res.ok) throw new Error(body.error);
+      setMaps(body.maps); setLibraryState("idle");
+    } catch (error) {
+      setLibraryState("error"); flash(error instanceof Error ? error.message : "Could not load your mind maps.");
+    }
+  };
+
+  const openMap = (map: MapSummary) => {
+    if (saveState === "unsaved" && !window.confirm("Open this mind map and discard unsaved changes?")) return;
+    window.location.href = `${window.location.pathname}?map=${encodeURIComponent(map.id)}&token=${encodeURIComponent(map.editToken)}`;
+  };
+
   const save = async () => {
     if (!canEdit) return;
     setSaveState("saving");
@@ -186,6 +206,7 @@ export function MindMapApp() {
       const res = await fetch("/api/maps", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: mapId, token: editToken, title, data: board }) });
       const body = await res.json(); if (!res.ok) throw new Error(body.error);
       const result = body.map; setMapId(result.id); setEditToken(result.editToken); setViewToken(result.viewToken); setSaveState("saved");
+      setMaps((current) => [{ id: result.id, title, updatedAt: new Date().toISOString(), editToken: result.editToken }, ...current.filter((map) => map.id !== result.id)]);
       const next = `?map=${encodeURIComponent(result.id)}&token=${encodeURIComponent(result.editToken)}`;
       window.history.replaceState({}, "", next); flash("Board saved");
     } catch (error) { setSaveState("error"); flash(error instanceof Error ? error.message : "Could not save this board."); }
@@ -195,6 +216,7 @@ export function MindMapApp() {
     if (!canEdit || (saveState === "unsaved" && !window.confirm("Start a new board and discard unsaved changes?"))) return;
     setBoard({ nodes: [{ id: "root", text: "Central idea", x: 650, y: 360, color: "#7a4cff" }], edges: [] });
     setTitle("Untitled mind map"); setMapId(null); setEditToken(null); setViewToken(null); setSelectedNode("root"); setSaveState("unsaved");
+    setLibraryOpen(false);
     window.history.replaceState({}, "", window.location.pathname);
   };
 
@@ -252,6 +274,7 @@ export function MindMapApp() {
     <main className="app-shell" data-permission={permission}>
       <header className="topbar">
         <div className="brand-mark" aria-label="Mindflow">M</div>
+        <button className="library-button" onClick={loadLibrary} aria-label="My mind maps"><span>☷</span><span>My maps</span></button>
         <button className="icon-button" onClick={newBoard} disabled={!canEdit} aria-label="New mind map" title="New mind map">＋</button>
         <div className="title-wrap">
           <input aria-label="Board title" value={title} disabled={!canEdit} onChange={(e) => { setTitle(e.target.value); markChanged(); }} />
@@ -325,6 +348,20 @@ export function MindMapApp() {
         <div className="menu-divider" />
         <button role="menuitem" onClick={() => { setSelectedNode(menu.nodeId); setMenu(null); setColorOpen(true); }}><span>●</span>Branch color</button>
         <button className="danger" role="menuitem" onClick={() => deleteNode(menu.nodeId)}><span>⌫</span>Delete <kbd>Del</kbd></button>
+      </div>}
+
+      {libraryOpen && <div className="library-backdrop" onMouseDown={() => setLibraryOpen(false)}>
+        <aside className="library-panel" aria-label="My mind maps" onMouseDown={(e) => e.stopPropagation()}>
+          <div className="library-header"><div><span>Your workspace</span><h2>My mind maps</h2></div><button onClick={() => setLibraryOpen(false)} aria-label="Close mind map list">×</button></div>
+          <button className="new-map-card" onClick={newBoard} disabled={!canEdit}><span>＋</span><div><strong>New mind map</strong><small>Start with a central idea</small></div></button>
+          <div className="library-label">Saved mind maps</div>
+          {libraryState === "loading" && <div className="library-message">Loading your maps…</div>}
+          {libraryState === "error" && <div className="library-message"><p>We couldn’t load your maps.</p><button onClick={loadLibrary}>Try again</button></div>}
+          {libraryState === "idle" && maps.length === 0 && <div className="library-empty"><div>◇</div><strong>No saved maps yet</strong><p>Name this board, then select Save.</p></div>}
+          {libraryState === "idle" && maps.length > 0 && <div className="map-list">{maps.map((map) => <button key={map.id} className={map.id === mapId ? "current" : ""} onClick={() => openMap(map)}>
+            <span className="map-thumbnail"><i /><i /><i /></span><span className="map-details"><strong>{map.title}</strong><small>{map.id === mapId ? "Open now" : `Updated ${new Date(map.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: new Date(map.updatedAt).getFullYear() !== new Date().getFullYear() ? "numeric" : undefined })}`}</small></span><span className="map-arrow">›</span>
+          </button>)}</div>}
+        </aside>
       </div>}
 
       {shareOpen && <div className="modal-backdrop" onMouseDown={() => setShareOpen(false)}>

@@ -1,6 +1,7 @@
-import { and, eq, or, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { mindMaps } from "../../../db/schema";
+import { getChatGPTUser } from "../../chatgpt-auth";
 
 const MAX_DATA_BYTES = 750_000;
 
@@ -28,15 +29,29 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const id = url.searchParams.get("id") ?? "";
   const accessToken = url.searchParams.get("token") ?? "";
-  if (!id || !accessToken) return Response.json({ error: "A board link is required." }, { status: 400 });
 
   try {
     const db = getDb();
+    if (!id && !accessToken) {
+      const user = await getChatGPTUser();
+      if (!user) return Response.json({ error: "Sign in to see your mind maps." }, { status: 401 });
+      const maps = await db.select({ id: mindMaps.id, title: mindMaps.title, updatedAt: mindMaps.updatedAt, editToken: mindMaps.editToken })
+        .from(mindMaps)
+        .where(eq(mindMaps.ownerEmail, user.email))
+        .orderBy(desc(mindMaps.updatedAt))
+        .limit(100);
+      return Response.json({ maps });
+    }
+    if (!id || !accessToken) return Response.json({ error: "A board link is required." }, { status: 400 });
     const [row] = await db.select().from(mindMaps)
       .where(and(eq(mindMaps.id, id), or(eq(mindMaps.viewToken, accessToken), eq(mindMaps.editToken, accessToken))))
       .limit(1);
     if (!row) return Response.json({ error: "This board link is invalid or no longer available." }, { status: 404 });
     const permission = row.editToken === accessToken ? "edit" : "view";
+    if (permission === "edit" && !row.ownerEmail) {
+      const user = await getChatGPTUser();
+      if (user) await db.update(mindMaps).set({ ownerEmail: user.email }).where(and(eq(mindMaps.id, row.id), isNull(mindMaps.ownerEmail)));
+    }
     return Response.json({
       map: { id: row.id, title: row.title, data: JSON.parse(row.data), updatedAt: row.updatedAt, viewToken: permission === "edit" ? row.viewToken : undefined },
       permission,
@@ -64,10 +79,12 @@ export async function POST(request: Request) {
       return Response.json({ map: updated[0] });
     }
 
+    const user = await getChatGPTUser();
+    if (!user) return Response.json({ error: "Sign in to save mind maps." }, { status: 401 });
     const id = crypto.randomUUID();
     const viewToken = token();
     const editToken = token();
-    await db.insert(mindMaps).values({ id, title, data, viewToken, editToken });
+    await db.insert(mindMaps).values({ id, ownerEmail: user.email, title, data, viewToken, editToken });
     return Response.json({ map: { id, viewToken, editToken } }, { status: 201 });
   } catch (error) {
     return Response.json({ error: errorMessage(error) }, { status: 500 });
