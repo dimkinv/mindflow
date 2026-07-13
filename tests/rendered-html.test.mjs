@@ -13,6 +13,7 @@ test("ships the complete Mindflow editor surface", async () => {
   assert.match(layout, /Mindflow/);
   assert.match(client, /Product launch plan/);
   assert.match(client, /Add child to \$\{node\.text\}/);
+  assert.match(styles, /data-plus-side="left"/);
   assert.match(client, /Share/);
   assert.match(client, /My mind maps/);
   assert.match(client, /loadLibrary/);
@@ -50,6 +51,9 @@ test("ships durable user-owned multi-document storage and permissioned sharing",
   assert.match(authMigration, /CREATE TABLE `users`/);
   assert.match(authMigration, /CREATE TABLE `sessions`/);
   assert.match(client, /event\.key === "Tab"/);
+  assert.match(client, /\[role='dialog'\]/);
+  assert.match(client, /AUTOSAVE_DELAY_MS/);
+  assert.match(client, /data-plus-side/);
   assert.match(client, /startConnect/);
   assert.match(client, /Create your account/);
   assert.match(migration, /CREATE TABLE `mind_maps`/);

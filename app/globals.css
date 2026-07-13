@@ -38,6 +38,7 @@ button { color: inherit; }
 .mind-node.connect-source { box-shadow: 0 0 0 4px rgba(91,67,214,.22); animation: connectPulse 1.2s infinite; }
 .mind-node input { width: 100%; border: 0; outline: 0; text-align: center; background: #fff; font-weight: 560; }
 .node-plus { position: absolute; right: -31px; top: 8px; width: 26px; height: 26px; display: grid; place-items: center; padding: 0; border-radius: 50%; border: 1px solid #d9d7e2; background: #fff; color: #5f5a6c; font-size: 18px; line-height: 1; box-shadow: 0 2px 7px rgba(30,25,48,.12); opacity: 0; transform: scale(.8); transition: .15s; cursor: pointer; }
+.mind-node[data-plus-side="left"] .node-plus { right: auto; left: -31px; }
 .mind-node:hover .node-plus,.mind-node.selected .node-plus { opacity: 1; transform: scale(1); }.node-plus:hover { background: var(--purple); border-color: var(--purple); color: #fff; }
 @keyframes connectPulse { 50% { box-shadow: 0 0 0 8px rgba(91,67,214,.08); } }
 

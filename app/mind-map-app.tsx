@@ -13,6 +13,7 @@ type AuthUser = { id: string; name: string; email: string };
 const COLORS = ["#ff5c35", "#ffad1f", "#ffd43b", "#6fd83d", "#26c6b7", "#20b8e5", "#4d7df3", "#7a4cff", "#c64ee8", "#f43fa4"];
 const NODE_W = 176;
 const NODE_H = 48;
+const AUTOSAVE_DELAY_MS = 1500;
 
 const starter: BoardData = {
   nodes: [
@@ -114,6 +115,7 @@ export function MindMapApp() {
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
+  const [nodePlusSide, setNodePlusSide] = useState<{ id: string; side: "left" | "right" } | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ id?: string; startX: number; startY: number; nodeX?: number; nodeY?: number; panX?: number; panY?: number } | null>(null);
   const canEdit = permission === "edit";
@@ -244,8 +246,8 @@ export function MindMapApp() {
     window.location.assign(`${window.location.pathname}?map=${encodeURIComponent(map.id)}&token=${encodeURIComponent(map.editToken)}`);
   };
 
-  const save = async () => {
-    if (!canEdit) return;
+  const save = useCallback(async (announce = true) => {
+    if (!canEdit || saveState === "saving") return;
     setSaveState("saving");
     try {
       const res = await fetch("/api/maps", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: mapId, token: editToken, title, data: board }) });
@@ -255,9 +257,15 @@ export function MindMapApp() {
       const result = body.map; setMapId(result.id); setEditToken(result.editToken); setViewToken(result.viewToken); setSaveState("saved");
       setMaps((current) => [{ id: result.id, title, updatedAt: new Date().toISOString(), editToken: result.editToken }, ...current.filter((map) => map.id !== result.id)]);
       const next = `?map=${encodeURIComponent(result.id)}&token=${encodeURIComponent(result.editToken)}`;
-      window.history.replaceState({}, "", next); flash("Board saved");
+      window.history.replaceState({}, "", next); if (announce) flash("Board saved");
     } catch (error) { setSaveState("error"); flash(error instanceof Error ? error.message : "Could not save this board."); }
-  };
+  }, [board, canEdit, editToken, flash, mapId, saveState, title]);
+
+  useEffect(() => {
+    if (!canEdit || !authUser || saveState !== "unsaved") return;
+    const timeout = window.setTimeout(() => { void save(false); }, AUTOSAVE_DELAY_MS);
+    return () => window.clearTimeout(timeout);
+  }, [authUser, canEdit, save, saveState]);
 
   const newBoard = () => {
     if (!canEdit || (saveState === "unsaved" && !window.confirm("Start a new board and discard unsaved changes?"))) return;
@@ -283,6 +291,8 @@ export function MindMapApp() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      const target = event.target;
+      if (target instanceof HTMLElement && target.closest("input, textarea, select, button, [contenteditable='true'], [role='dialog']")) return;
       if (event.key === "Escape") { setMenu(null); setConnectFrom(null); setEditingNode(null); }
       if (event.key === "Tab" && selectedNode && !editingNode && canEdit) { event.preventDefault(); addChild(selectedNode); }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") { event.preventDefault(); save(); }
@@ -290,6 +300,12 @@ export function MindMapApp() {
     };
     window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey);
   });
+
+  const updateNodePlusSide = (event: React.PointerEvent<HTMLDivElement>, nodeId: string) => {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const side = event.clientX < bounds.left + bounds.width / 2 ? "left" : "right";
+    setNodePlusSide((current) => current?.id === nodeId && current.side === side ? current : { id: nodeId, side });
+  };
 
   const onNodePointerDown = (event: React.PointerEvent, node: NodeItem) => {
     if (!canEdit || editingNode) return;
@@ -329,7 +345,6 @@ export function MindMapApp() {
         </div>
         <div className="top-actions">
           {!canEdit && <span className="view-badge">View only</span>}
-          <button className="secondary-button" onClick={save} disabled={!canEdit || saveState === "saving"}>{saveState === "saving" ? "Saving…" : "Save"}</button>
           <button className="share-button" onClick={() => setShareOpen(true)}>Share</button>
           <button className="account-button" onClick={() => { setAuthMode("login"); setAuthOpen(true); }} aria-label={authUser ? `Account for ${authUser.name}` : "Sign in or register"}>
             {authUser ? authUser.name.slice(0, 1).toUpperCase() : "Sign in"}
@@ -378,8 +393,9 @@ export function MindMapApp() {
           </svg>
           {board.nodes.map((node) => {
             const selected = selectedNode === node.id; const editing = editingNode === node.id;
-            return <div key={node.id} className={`mind-node ${selected ? "selected" : ""} ${connectFrom === node.id ? "connect-source" : ""}`} data-testid={`node-${node.id}`} style={{ left: node.x, top: node.y, "--node-color": node.color } as React.CSSProperties}
+            return <div key={node.id} className={`mind-node ${selected ? "selected" : ""} ${connectFrom === node.id ? "connect-source" : ""}`} data-testid={`node-${node.id}`} data-plus-side={nodePlusSide?.id === node.id ? nodePlusSide.side : "right"} style={{ left: node.x, top: node.y, "--node-color": node.color } as React.CSSProperties}
               onPointerDown={(e) => onNodePointerDown(e, node)} onClick={(e) => { e.stopPropagation(); selectNode(node.id); }} onDoubleClick={(e) => { e.stopPropagation(); if (canEdit) setEditingNode(node.id); }}
+              onPointerMove={(e) => updateNodePlusSide(e, node.id)}
               onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); if (canEdit) { setSelectedNode(node.id); setMenu({ x: e.clientX, y: e.clientY, nodeId: node.id }); } }}>
               {editing ? <input autoFocus value={node.text} aria-label="Node text" onChange={(e) => updateNodes((nodes) => nodes.map((n) => n.id === node.id ? { ...n, text: e.target.value } : n))} onBlur={() => setEditingNode(null)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === "Escape") { e.preventDefault(); setEditingNode(null); } }} /> : <span>{node.text}</span>}
               {canEdit && <button className="node-plus" aria-label={`Add child to ${node.text}`} title="Add child" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); addChild(node.id); }}>＋</button>}
@@ -407,7 +423,7 @@ export function MindMapApp() {
           <div className="library-label">Saved mind maps</div>
           {libraryState === "loading" && <div className="library-message">Loading your maps…</div>}
           {libraryState === "error" && <div className="library-message"><p>We couldn’t load your maps.</p><button onClick={loadLibrary}>Try again</button></div>}
-          {libraryState === "idle" && maps.length === 0 && <div className="library-empty"><div>◇</div><strong>No saved maps yet</strong><p>Name this board, then select Save.</p></div>}
+          {libraryState === "idle" && maps.length === 0 && <div className="library-empty"><div>◇</div><strong>No saved maps yet</strong><p>Your changes save automatically after a short pause.</p></div>}
           {libraryState === "idle" && maps.length > 0 && <div className="map-list">{maps.map((map) => <button key={map.id} className={map.id === mapId ? "current" : ""} onClick={() => openMap(map)}>
             <span className="map-thumbnail"><i /><i /><i /></span><span className="map-details"><strong>{map.title}</strong><small>{map.id === mapId ? "Open now" : `Updated ${new Date(map.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: new Date(map.updatedAt).getFullYear() !== new Date().getFullYear() ? "numeric" : undefined })}`}</small></span><span className="map-arrow">›</span>
           </button>)}</div>}
