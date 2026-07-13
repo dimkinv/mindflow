@@ -8,6 +8,7 @@ type NodeItem = { id: string; text: string; x: number; y: number; color: string;
 type EdgeItem = { id: string; from: string; to: string; color: string; shape: LineShape; dash: LineDash; manual?: boolean };
 type BoardData = { nodes: NodeItem[]; edges: EdgeItem[] };
 type MapSummary = { id: string; title: string; updatedAt: string; editToken: string };
+type AuthUser = { id: string; name: string; email: string };
 
 const COLORS = ["#ff5c35", "#ffad1f", "#ffd43b", "#6fd83d", "#26c6b7", "#20b8e5", "#4d7df3", "#7a4cff", "#c64ee8", "#f43fa4"];
 const NODE_W = 176;
@@ -53,6 +54,40 @@ function pathFor(edge: EdgeItem, from: NodeItem, to: NodeItem) {
   return `M ${sx} ${sy} C ${c1} ${sy}, ${c2} ${ty}, ${tx} ${ty}`;
 }
 
+function AuthDialog({ user, initialMode, onClose, onSignedIn, onSignedOut }: {
+  user: AuthUser | null; initialMode: "login" | "register"; onClose: () => void;
+  onSignedIn: (user: AuthUser) => void; onSignedOut: () => void;
+}) {
+  const [mode, setMode] = useState(initialMode); const [name, setName] = useState("");
+  const [email, setEmail] = useState(""); const [password, setPassword] = useState("");
+  const [working, setWorking] = useState(false); const [error, setError] = useState("");
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault(); setWorking(true); setError("");
+    try {
+      const res = await fetch(`/api/auth/${mode}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name, email, password }) });
+      const body = await res.json(); if (!res.ok) throw new Error(body.error); onSignedIn(body.user);
+    } catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Please try again."); }
+    finally { setWorking(false); }
+  };
+  const signOut = async () => {
+    setWorking(true); setError("");
+    try { const res = await fetch("/api/auth/session", { method: "DELETE" }); if (!res.ok) throw new Error("You could not be signed out."); onSignedOut(); }
+    catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Please try again."); }
+    finally { setWorking(false); }
+  };
+  return <div className="modal-backdrop" onMouseDown={onClose}><div className="auth-modal" role="dialog" aria-modal="true" aria-labelledby="auth-title" onMouseDown={(event) => event.stopPropagation()}>
+    <button className="modal-close" onClick={onClose} aria-label="Close account dialog">×</button><div className="brand-mark">M</div>
+    {user ? <><h2 id="auth-title">Your account</h2><p>Signed in as <strong>{user.name}</strong></p><span className="account-email">{user.email}</span>
+      {error && <div className="auth-error" role="alert">{error}</div>}<button className="auth-submit secondary" onClick={signOut} disabled={working}>Sign out</button></> : <>
+      <h2 id="auth-title">{mode === "login" ? "Welcome back" : "Create your account"}</h2><p>{mode === "login" ? "Sign in to save and manage your mind maps." : "Create an account to keep your mind maps together."}</p>
+      <form onSubmit={submit}>{mode === "register" && <label>Name<input autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} required maxLength={80} /></label>}
+        <label>Email<input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>
+        <label>Password<input type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} value={password} onChange={(event) => setPassword(event.target.value)} required minLength={8} maxLength={128} /></label>
+        {error && <div className="auth-error" role="alert">{error}</div>}<button className="auth-submit" type="submit" disabled={working}>{working ? "Please wait..." : mode === "login" ? "Sign in" : "Create account"}</button></form>
+      <button className="auth-switch" onClick={() => { setMode(mode === "login" ? "register" : "login"); setError(""); }}>{mode === "login" ? "New to Mindflow? Create an account" : "Already have an account? Sign in"}</button></>}
+  </div></div>;
+}
+
 export function MindMapApp() {
   const [board, setBoard] = useState<BoardData>(cloneStarter);
   const [title, setTitle] = useState("Product launch plan");
@@ -76,6 +111,9 @@ export function MindMapApp() {
   const [zoom, setZoom] = useState(0.9);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [loading, setLoading] = useState(true);
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [authOpen, setAuthOpen] = useState(false);
+  const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const canvasRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ id?: string; startX: number; startY: number; nodeX?: number; nodeY?: number; panX?: number; panY?: number } | null>(null);
   const canEdit = permission === "edit";
@@ -86,10 +124,15 @@ export function MindMapApp() {
   }, []);
 
   useEffect(() => {
+    fetch("/api/auth/session", { cache: "no-store" }).then(async (res) => res.ok ? res.json() : { user: null })
+      .then((body) => setAuthUser(body.user ?? null)).catch(() => setAuthUser(null));
+  }, []);
+
+  useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const id = params.get("map");
     const token = params.get("token");
-    if (!id || !token) { setLoading(false); return; }
+    if (!id || !token) { queueMicrotask(() => setLoading(false)); return; }
     fetch(`/api/maps?id=${encodeURIComponent(id)}&token=${encodeURIComponent(token)}`)
       .then(async (res) => { const body = await res.json(); if (!res.ok) throw new Error(body.error); return body; })
       .then((body) => {
@@ -187,7 +230,9 @@ export function MindMapApp() {
     setLibraryOpen(true); setLibraryState("loading");
     try {
       const res = await fetch("/api/maps");
-      const body = await res.json(); if (!res.ok) throw new Error(body.error);
+      const body = await res.json();
+      if (res.status === 401) { setLibraryOpen(false); setLibraryState("idle"); setAuthMode("login"); setAuthOpen(true); flash("Sign in to see your saved maps"); return; }
+      if (!res.ok) throw new Error(body.error);
       setMaps(body.maps); setLibraryState("idle");
     } catch (error) {
       setLibraryState("error"); flash(error instanceof Error ? error.message : "Could not load your mind maps.");
@@ -196,7 +241,7 @@ export function MindMapApp() {
 
   const openMap = (map: MapSummary) => {
     if (saveState === "unsaved" && !window.confirm("Open this mind map and discard unsaved changes?")) return;
-    window.location.href = `${window.location.pathname}?map=${encodeURIComponent(map.id)}&token=${encodeURIComponent(map.editToken)}`;
+    window.location.assign(`${window.location.pathname}?map=${encodeURIComponent(map.id)}&token=${encodeURIComponent(map.editToken)}`);
   };
 
   const save = async () => {
@@ -204,7 +249,9 @@ export function MindMapApp() {
     setSaveState("saving");
     try {
       const res = await fetch("/api/maps", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: mapId, token: editToken, title, data: board }) });
-      const body = await res.json(); if (!res.ok) throw new Error(body.error);
+      const body = await res.json();
+      if (res.status === 401) { setSaveState("unsaved"); setAuthMode("login"); setAuthOpen(true); flash("Sign in to save this board"); return; }
+      if (!res.ok) throw new Error(body.error);
       const result = body.map; setMapId(result.id); setEditToken(result.editToken); setViewToken(result.viewToken); setSaveState("saved");
       setMaps((current) => [{ id: result.id, title, updatedAt: new Date().toISOString(), editToken: result.editToken }, ...current.filter((map) => map.id !== result.id)]);
       const next = `?map=${encodeURIComponent(result.id)}&token=${encodeURIComponent(result.editToken)}`;
@@ -284,6 +331,9 @@ export function MindMapApp() {
           {!canEdit && <span className="view-badge">View only</span>}
           <button className="secondary-button" onClick={save} disabled={!canEdit || saveState === "saving"}>{saveState === "saving" ? "Saving…" : "Save"}</button>
           <button className="share-button" onClick={() => setShareOpen(true)}>Share</button>
+          <button className="account-button" onClick={() => { setAuthMode("login"); setAuthOpen(true); }} aria-label={authUser ? `Account for ${authUser.name}` : "Sign in or register"}>
+            {authUser ? authUser.name.slice(0, 1).toUpperCase() : "Sign in"}
+          </button>
         </div>
       </header>
 
@@ -374,6 +424,10 @@ export function MindMapApp() {
           <div className="share-note">Keep edit links private. Anyone who has one can change this board.</div>
         </div>
       </div>}
+
+      {authOpen && <AuthDialog user={authUser} initialMode={authMode} onClose={() => setAuthOpen(false)}
+        onSignedIn={(user) => { setAuthUser(user); setAuthOpen(false); flash(`Welcome, ${user.name}`); }}
+        onSignedOut={() => { setAuthUser(null); setAuthOpen(false); setMaps([]); setLibraryOpen(false); flash("Signed out"); }} />}
 
       {toast && <div className="toast" role="status">✓ {toast}</div>}
     </main>

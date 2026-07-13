@@ -1,98 +1,72 @@
-# vinext-starter
+# Mindflow
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+Mindflow is a self-hosted mind-map editor built with React, Next.js-compatible
+App Router APIs, vinext, Cloudflare Workers, D1, and Drizzle ORM.
 
-## Prerequisites
+## Requirements
 
-- Node.js `>=22.13.0`
+- Node.js 22.13 or newer
+- A Cloudflare account
+- Wrangler authenticated with `npx wrangler login`
+- An existing D1 database, or a new D1 database created for Mindflow
 
-## Quick Start
+## Cloudflare configuration
+
+Edit `wrangler.jsonc` before deploying:
+
+1. Change `database_name` to the name of your D1 database.
+2. Replace the all-zero `database_id` with that database's real UUID.
+3. Optionally change the Worker name from `mindflow`.
+4. Add `account_id` at the top level, or set `CLOUDFLARE_ACCOUNT_ID` in your shell or CI environment.
+
+Find the database information with `npx wrangler d1 list`. The Worker accesses
+D1 through the `DB` binding; no database password is stored in the app.
+
+## Local development
 
 ```bash
 npm install
+npm run db:migrate:local
 npm run dev
-npm run build
 ```
 
-This starter does not use `wrangler.jsonc`.
+## Deploying to your Cloudflare account
 
-## Included Shape
-
-- edit site code under `app/`
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/schema.ts` starts intentionally empty
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
-
-## Workspace Auth Headers
-
-OpenAI workspace sites can read the current user's email from
-`oai-authenticated-user-email`.
-
-SIWC-authenticated workspace sites may also receive
-`oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty
-`name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by
-`oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
-
-Treat the full name as optional and fall back to email when it is absent:
-
-```tsx
-import { headers } from "next/headers";
-
-export default async function Home() {
-  const requestHeaders = await headers();
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
-
-  const displayName = fullName ?? email;
-  // ...
-}
+```bash
+npm run db:migrate:remote
+npm run deploy
 ```
 
-## Optional Dispatch-Owned ChatGPT Sign-In
+Afterward, attach a custom domain from the Worker's **Settings > Domains &
+Routes** page in the Cloudflare dashboard.
 
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs
-optional or required ChatGPT sign-in:
+For later schema changes, run `npm run db:generate`, inspect and commit the
+generated SQL, then apply migrations before deploying.
 
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send
-  anonymous visitors through Sign in with ChatGPT.
-- Use `chatGPTSignInPath(returnTo)` and `chatGPTSignOutPath(returnTo)` for
-  browser links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in
-  or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because
-  they depend on per-request identity headers.
+## Authentication
 
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the
-OAuth cookies, and identity header injection. Do not implement app routes for
-those reserved paths. Routes that do not import and call the helper remain
-anonymous-compatible.
+Authentication is owned by this application and does not depend on ChatGPT.
+Users register with a name, email, and password and receive an HTTP-only session
+cookie.
 
-SIWC establishes identity only; it does not prove workspace membership. Use the
-Sites hosting platform's access policy controls for workspace-wide restrictions,
-or enforce explicit server-side membership or allowlist checks.
+- Passwords use PBKDF2-HMAC-SHA-256 with a unique random salt.
+- D1 stores only hashes of session tokens.
+- Sessions expire after 30 days.
+- Production cookies use `Secure`, `HttpOnly`, and `SameSite=Lax`.
+- Existing maps are claimed when an account uses the same normalized email.
+- Existing view and edit links remain valid.
 
-Use SIWC for account pages, user-specific dashboards, saved records, and write
-actions tied to the current ChatGPT user. Leave public content anonymous.
+For a public service, configure Cloudflare rate limits for `/api/auth/login` and
+`/api/auth/register`. Email verification and password reset require an email
+delivery provider and are not included yet.
 
-## Useful Commands
+## Useful commands
 
-- `npm run dev`: start local development
-- `npm run build`: verify the vinext build output
-- `npm test`: build the starter and verify its rendered loading skeleton
-- `npm run db:generate`: generate Drizzle migrations after schema changes
-
-## Learn More
-
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+- `npm run dev`: local development
+- `npm run build`: production build
+- `npm test`: build and project checks
+- `npm run lint`: lint the project
+- `npm run deploy`: deploy to Cloudflare Workers
+- `npm run db:generate`: generate a Drizzle migration
+- `npm run db:migrate:local`: apply migrations to local D1
+- `npm run db:migrate:remote`: apply migrations to remote D1
