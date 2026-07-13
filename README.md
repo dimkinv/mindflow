@@ -19,6 +19,13 @@ Edit `wrangler.jsonc` before deploying:
 3. Optionally change the Worker name from `mindflow`.
 4. Add `account_id` at the top level, or set `CLOUDFLARE_ACCOUNT_ID` in your shell or CI environment.
 
+Configure the password pepper once for each Worker environment. Use a long,
+random value and never commit it:
+
+```bash
+npx wrangler secret put PASSWORD_PEPPER
+```
+
 Find the database information with `npx wrangler d1 list`. The Worker accesses
 D1 through the `DB` binding; no database password is stored in the app.
 
@@ -50,6 +57,7 @@ Users register with a name, email, and password and receive an HTTP-only session
 cookie.
 
 - Passwords use PBKDF2-HMAC-SHA-256 with a unique random salt.
+- Password hashing also uses a Worker secret named `PASSWORD_PEPPER`.
 - D1 stores only hashes of session tokens.
 - Sessions expire after 30 days.
 - Production cookies use `Secure`, `HttpOnly`, and `SameSite=Lax`.

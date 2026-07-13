@@ -1,10 +1,12 @@
 import { and, eq, gt } from "drizzle-orm";
+import { env } from "cloudflare:workers";
 import { getDb } from "../db";
 import { sessions, users } from "../db/schema";
 
 const SESSION_COOKIE = "mindflow_session";
 const SESSION_DAYS = 30;
-const PBKDF2_ITERATIONS = 310_000;
+// Cloudflare's production workerd runtime rejects PBKDF2 counts above 100,000.
+const PBKDF2_ITERATIONS = 100_000;
 
 export type AuthUser = { id: string; email: string; name: string };
 
@@ -20,7 +22,10 @@ function hexToBytes(hex: string) {
 }
 
 async function derivePassword(password: string, salt: Uint8Array) {
-  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveBits"]);
+  const pepper = (env as unknown as { PASSWORD_PEPPER?: string }).PASSWORD_PEPPER;
+  if (!pepper) throw new Error("PASSWORD_PEPPER is not configured.");
+  const keyMaterial = new TextEncoder().encode(`${password}\0${pepper}`);
+  const key = await crypto.subtle.importKey("raw", keyMaterial, "PBKDF2", false, ["deriveBits"]);
   const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations: PBKDF2_ITERATIONS }, key, 256);
   return new Uint8Array(bits);
 }

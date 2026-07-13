@@ -13,5 +13,8 @@ export async function POST(request: Request) {
     await db.update(mindMaps).set({ ownerUserId: user.id }).where(and(isNull(mindMaps.ownerUserId), sql`lower(${mindMaps.ownerEmail}) = ${user.email}`));
     const cookie = await createSession(request, user.id);
     return Response.json({ user: { id: user.id, email: user.email, name: user.name } }, { headers: { "cache-control": "no-store", "set-cookie": cookie } });
-  } catch { return Response.json({ error: "You could not be signed in." }, { status: 500 }); }
+  } catch (error) {
+    console.error("Account sign-in failed", error);
+    return Response.json({ error: "You could not be signed in." }, { status: 500 });
+  }
 }

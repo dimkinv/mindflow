@@ -23,6 +23,7 @@ export async function POST(request: Request) {
     return Response.json({ user: { id, email, name } }, { status: 201, headers: { "cache-control": "no-store", "set-cookie": cookie } });
   } catch (error) {
     if (error instanceof Error && error.message.includes("UNIQUE constraint failed")) return Response.json({ error: "An account with this email already exists." }, { status: 409 });
+    console.error("Account registration failed", error);
     return Response.json({ error: "Your account could not be created." }, { status: 500 });
   }
 }
