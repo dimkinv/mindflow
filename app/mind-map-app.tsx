@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { LocateFixed } from "lucide-react";
 
 type LineShape = "curve" | "straight" | "elbow";
 type LineDash = "solid" | "dashed" | "dotted";
@@ -434,7 +435,7 @@ export function MindMapApp() {
         <button className="tool active" aria-label="Select tool" title="Select">↖</button>
         <button className={`tool ${connectFrom !== null ? "active" : ""}`} onClick={() => startConnect()} aria-label="Connect two nodes" title="Connect nodes">⌁</button>
         <button className="tool" onClick={() => selectedNode && addChild(selectedNode)} disabled={!selectedNode} aria-label="Add child node" title="Add child (Tab)">＋</button>
-        <button className="tool center-root-button" onClick={centerOnRoot} aria-label="Center on root note" title="Center on root note">⌾</button>
+        <button className="tool center-root-button" onClick={centerOnRoot} aria-label="Center on root note" title="Center on root note"><LocateFixed size={19} strokeWidth={2.25} aria-hidden="true" /></button>
       </aside>}
 
       {canEdit && (selectedNode || selectedEdge) && <div className="format-bar">
