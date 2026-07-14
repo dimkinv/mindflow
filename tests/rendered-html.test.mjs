@@ -74,6 +74,9 @@ test("ships durable user-owned multi-document storage and permissioned sharing",
   assert.match(client, /onTouchMove/);
   assert.match(client, /Center on root note/);
   assert.match(client, /LocateFixed/);
+  assert.match(client, /Delete connection/);
+  assert.match(client, /Change parent/);
+  assert.match(client, /reparentingNode/);
   assert.match(client, /Create your account/);
   assert.match(client, /new WebSocket/);
   assert.match(client, /collaborationSocketRef/);

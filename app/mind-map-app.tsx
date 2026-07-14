@@ -109,6 +109,7 @@ export function MindMapApp() {
   const [libraryState, setLibraryState] = useState<"idle" | "loading" | "error">("idle");
   const [menu, setMenu] = useState<{ x: number; y: number; nodeId: string } | null>(null);
   const [connectFrom, setConnectFrom] = useState<string | null>(null);
+  const [reparentingNode, setReparentingNode] = useState<string | null>(null);
   const [mapId, setMapId] = useState<string | null>(null);
   const [editToken, setEditToken] = useState<string | null>(null);
   const [viewToken, setViewToken] = useState<string | null>(null);
@@ -233,11 +234,45 @@ export function MindMapApp() {
 
   const startConnect = (nodeId?: string) => {
     if (!canEdit) return;
-    setConnectFrom(nodeId ?? selectedNode); setMenu(null); setSelectedEdge(null);
+    setConnectFrom(nodeId ?? selectedNode); setReparentingNode(null); setMenu(null); setSelectedEdge(null);
     flash(nodeId || selectedNode ? "Now choose a second node" : "Choose the first node to connect");
   };
 
+  const deleteCustomConnection = () => {
+    if (!canEdit || !selectedEdge || !board.edges.find((edge) => edge.id === selectedEdge)?.manual) return;
+    setBoard((current) => ({ ...current, edges: current.edges.filter((edge) => edge.id !== selectedEdge) }));
+    setSelectedEdge(null); setLineOpen(false); markChanged();
+  };
+
+  const startChangeParent = (nodeId: string) => {
+    if (!canEdit || !board.nodes.find((node) => node.id === nodeId)?.parentId) return;
+    setReparentingNode(nodeId); setConnectFrom(null); setMenu(null); setSelectedNode(nodeId); setSelectedEdge(null);
+    flash("Choose a new parent node");
+  };
+
+  const changeParent = (nextParentId: string) => {
+    const nodeId = reparentingNode; if (!nodeId || nodeId === nextParentId) return;
+    const descendants = new Set<string>([nodeId]); let foundChild = true;
+    while (foundChild) {
+      foundChild = false;
+      board.nodes.forEach((node) => {
+        if (node.parentId && descendants.has(node.parentId) && !descendants.has(node.id)) { descendants.add(node.id); foundChild = true; }
+      });
+    }
+    if (descendants.has(nextParentId)) { flash("A node cannot become the parent of its own branch"); return; }
+    const nextParent = board.nodes.find((node) => node.id === nextParentId); if (!nextParent) return;
+    setBoard((current) => ({
+      nodes: current.nodes.map((node) => node.id === nodeId ? { ...node, parentId: nextParentId } : node),
+      edges: [
+        ...current.edges.filter((edge) => !(edge.to === nodeId && !edge.manual) && !(edge.from === nextParentId && edge.to === nodeId)),
+        { id: uid(), from: nextParentId, to: nodeId, color: nextParent.color, shape: "curve", dash: "solid" },
+      ],
+    }));
+    setReparentingNode(null); setSelectedNode(nodeId); markChanged(); flash("Parent updated");
+  };
+
   const selectNode = (nodeId: string) => {
+    if (reparentingNode) { changeParent(nodeId); return; }
     if (connectFrom) {
       if (connectFrom !== nodeId && !board.edges.some((e) => (e.from === connectFrom && e.to === nodeId) || (e.to === connectFrom && e.from === nodeId))) {
         const source = board.nodes.find((n) => n.id === connectFrom)!;
@@ -342,7 +377,7 @@ export function MindMapApp() {
     const onKey = (event: KeyboardEvent) => {
       const target = event.target;
       if (target instanceof HTMLElement && target.closest("input, textarea, select, button, [contenteditable='true'], [role='dialog']")) return;
-      if (event.key === "Escape") { setMenu(null); setConnectFrom(null); setEditingNode(null); }
+      if (event.key === "Escape") { setMenu(null); setConnectFrom(null); setReparentingNode(null); setEditingNode(null); }
       if (event.key === "Tab" && selectedNode && !editingNode && canEdit) { event.preventDefault(); addChild(selectedNode); }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") { event.preventDefault(); save(); }
       if ((event.key === "Delete" || event.key === "Backspace") && selectedNode && !editingNode && canEdit) deleteNode(selectedNode);
@@ -483,6 +518,7 @@ export function MindMapApp() {
         <button className="format-button" onClick={() => { setLineOpen(!lineOpen); setColorOpen(false); }} aria-expanded={lineOpen}><span className="line-sample" /> Line</button>
         <button className="format-button" onClick={() => { setColorOpen(!colorOpen); setLineOpen(false); }} disabled={!selectedNode} aria-expanded={colorOpen}><span className="color-dot" style={{ background: board.nodes.find((n) => n.id === selectedNode)?.color }} /> Branch</button>
         <button className="format-button" onClick={() => selectedNode && setEditingNode(selectedNode)} disabled={!selectedNode}>T Text</button>
+        {selectedEdge && board.edges.find((edge) => edge.id === selectedEdge)?.manual && <button className="format-button danger" onClick={deleteCustomConnection}>Delete connection</button>}
         {lineOpen && <div className="popover line-popover">
           <div className="popover-label">Connector</div>
           <div className="segmented">
@@ -500,7 +536,7 @@ export function MindMapApp() {
         </div>}
       </div>}
 
-      <section ref={canvasRef} className={`canvas ${connectFrom ? "connecting" : ""}`} onPointerDown={onCanvasPointerDown} onPointerMove={onPointerMove} onPointerUp={() => { dragRef.current = null; }} onPointerCancel={() => { dragRef.current = null; }} onWheel={onCanvasWheel} onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={() => { pinchRef.current = null; }} onTouchCancel={() => { pinchRef.current = null; }} onContextMenu={(e) => e.preventDefault()}>
+      <section ref={canvasRef} className={`canvas ${connectFrom || reparentingNode ? "connecting" : ""}`} onPointerDown={onCanvasPointerDown} onPointerMove={onPointerMove} onPointerUp={() => { dragRef.current = null; }} onPointerCancel={() => { dragRef.current = null; }} onWheel={onCanvasWheel} onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={() => { pinchRef.current = null; }} onTouchCancel={() => { pinchRef.current = null; }} onContextMenu={(e) => e.preventDefault()}>
         <div className="canvas-world" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}>
           <svg className="edges" width="1600" height="900" aria-label="Mind map connections">
             {board.edges.map((edge) => {
@@ -514,7 +550,7 @@ export function MindMapApp() {
           </svg>
           {board.nodes.map((node) => {
             const selected = selectedNode === node.id; const editing = editingNode === node.id;
-            return <div key={node.id} className={`mind-node ${selected ? "selected" : ""} ${connectFrom === node.id ? "connect-source" : ""}`} data-testid={`node-${node.id}`} data-plus-side={nodePlusSide?.id === node.id ? nodePlusSide.side : "right"} style={{ left: node.x, top: node.y, "--node-color": node.color } as React.CSSProperties}
+            return <div key={node.id} className={`mind-node ${selected ? "selected" : ""} ${connectFrom === node.id || reparentingNode === node.id ? "connect-source" : ""}`} data-testid={`node-${node.id}`} data-plus-side={nodePlusSide?.id === node.id ? nodePlusSide.side : "right"} style={{ left: node.x, top: node.y, "--node-color": node.color } as React.CSSProperties}
               onPointerDown={(e) => onNodePointerDown(e, node)} onClick={(e) => { e.stopPropagation(); selectNode(node.id); }} onDoubleClick={(e) => { e.stopPropagation(); if (canEdit) setEditingNode(node.id); }}
               onPointerMove={(e) => updateNodePlusSide(e, node.id)}
               onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); if (canEdit) { setSelectedNode(node.id); setMenu({ x: e.clientX, y: e.clientY, nodeId: node.id }); } }}>
@@ -523,7 +559,7 @@ export function MindMapApp() {
             </div>;
           })}
         </div>
-        <div className="canvas-hint">{connectFrom ? "Choose a node to finish the connection · Esc to cancel" : canEdit ? "Select a node and press Tab to add a branch" : "You’re viewing this board"}</div>
+        <div className="canvas-hint">{reparentingNode ? "Choose a new parent node · Esc to cancel" : connectFrom ? "Choose a node to finish the connection · Esc to cancel" : canEdit ? "Select a node and press Tab to add a branch" : "You’re viewing this board"}</div>
       </section>
 
       <div className="zoom-controls"><button onClick={() => setZoom((z) => Math.max(.45, z - .1))} aria-label="Zoom out">−</button><span>{Math.round(zoom * 100)}%</span><button onClick={() => setZoom((z) => Math.min(1.5, z + .1))} aria-label="Zoom in">＋</button><button onClick={() => { setPan({ x: 0, y: 0 }); setZoom(.9); }} aria-label="Reset view">⌂</button></div>
@@ -532,6 +568,7 @@ export function MindMapApp() {
         <button role="menuitem" onClick={() => addChild(menu.nodeId)}><span>＋</span>Add child <kbd>Tab</kbd></button>
         <button role="menuitem" onClick={() => duplicateNode(menu.nodeId)}><span>▣</span>Duplicate <kbd>Ctrl D</kbd></button>
         <button role="menuitem" onClick={() => startConnect(menu.nodeId)}><span>⌁</span>Connect to…</button>
+        {board.nodes.find((node) => node.id === menu.nodeId)?.parentId && <button role="menuitem" onClick={() => startChangeParent(menu.nodeId)}><span>↗</span>Change parent…</button>}
         <div className="menu-divider" />
         <button role="menuitem" onClick={() => { setSelectedNode(menu.nodeId); setMenu(null); setColorOpen(true); }}><span>●</span>Branch color</button>
         <button className="danger" role="menuitem" onClick={() => deleteNode(menu.nodeId)}><span>⌫</span>Delete <kbd>Del</kbd></button>
