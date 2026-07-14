@@ -25,7 +25,14 @@ button { color: inherit; }
 .share-button:hover { background: var(--purple-dark); }
 .account-button { min-width: 38px; height: 38px; padding: 0 11px; border: 1px solid #d8d2f4; border-radius: 50px; background: #f3f0ff; color: var(--purple-dark); font-size: 12px; font-weight: 750; cursor: pointer; }
 .account-button:hover { background: #eae5ff; border-color: #bfb4ef; }
+.login-button { height: 38px; padding: 0 18px; border: 1px solid var(--purple); border-radius: 10px; background: var(--purple); color: #fff; font-size: 13px; font-weight: 700; cursor: pointer; box-shadow: 0 5px 14px rgba(80,57,195,.2); }
+.login-button:hover { background: var(--purple-dark); }
 .view-badge { padding: 7px 10px; border-radius: 8px; background: #f1effb; color: #5641b8; font-size: 12px; font-weight: 650; }
+
+.welcome-shell { background: #f7f5ff; }
+.welcome-topbar { justify-content: space-between; }
+.welcome-screen { height: 100%; padding: 84px 20px 16px; display: grid; place-items: center; overflow: hidden; background: radial-gradient(circle at 50% 15%, #fff 0, #f8f5ff 48%, #ede9ff 100%); }
+.welcome-screen img { display: block; width: min(100%, 1536px); max-height: calc(100dvh - 100px); object-fit: contain; border-radius: 18px; box-shadow: 0 18px 55px rgba(63,44,143,.12); }
 
 .canvas { position: absolute; inset: 68px 0 0; overflow: hidden; touch-action: none; cursor: grab; background-color: #fbfbfc; background-image: linear-gradient(#e9e9ee 1px, transparent 1px), linear-gradient(90deg, #e9e9ee 1px, transparent 1px); background-size: 40px 40px; }
 .canvas:active { cursor: grabbing; }.canvas.connecting { cursor: crosshair; }
@@ -83,5 +90,6 @@ button { color: inherit; }
   .topbar { padding: 0 8px; gap: 6px; }.brand-mark { width: 34px; height: 34px; }.icon-button { width: 34px; height: 34px; }.library-button { width: 34px; padding: 0; justify-content: center; }.library-button span:last-child { display: none; }.title-wrap input { width: 18vw; }.secondary-button { display: block; padding: 0 9px; }.share-button { padding: 0 10px; }.account-button { min-width: 34px; width: 34px; padding: 0; overflow: hidden; }.view-badge { display: none; }
   .left-tools { left: 10px; top: 78px; }.format-bar { top: auto; bottom: 70px; max-width: calc(100vw - 20px); }.format-button { padding: 0 9px; }.format-button:nth-child(3) { display: none; }
   .canvas-world { left: calc(50vw - 664px); }
+  .welcome-screen { padding: 78px 8px 8px; }.welcome-screen img { max-height: calc(100dvh - 86px); border-radius: 10px; }
   .color-popover { left: 0; bottom: 48px; top: auto; }.line-popover { bottom: 48px; top: auto; }.canvas-hint { display: none; }.zoom-controls { right: 10px; bottom: 12px; }.share-modal { padding: 22px; }
 }

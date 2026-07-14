@@ -17,7 +17,11 @@ test("ships the complete Mindflow editor surface", async () => {
   assert.match(client, /Share/);
   assert.match(client, /My mind maps/);
   assert.match(client, /loadLibrary/);
+  assert.match(client, /mindflow-welcome\.png/);
+  assert.match(client, /Welcome to Mindflow/);
+  assert.match(client, /Log in/);
   assert.match(styles, /\.canvas/);
+  assert.match(styles, /\.welcome-screen/);
   assert.doesNotMatch(`${page}${layout}${client}`, /codex-preview|Your site is taking shape|react-loading-skeleton/);
 });
 

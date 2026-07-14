@@ -112,6 +112,12 @@ export function MindMapApp() {
   const [zoom, setZoom] = useState(0.9);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [loading, setLoading] = useState(true);
+  const [authReady, setAuthReady] = useState(false);
+  const [hasSharedMap] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const params = new URLSearchParams(window.location.search);
+    return Boolean(params.get("map") && params.get("token"));
+  });
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
@@ -127,7 +133,7 @@ export function MindMapApp() {
 
   useEffect(() => {
     fetch("/api/auth/session", { cache: "no-store" }).then(async (res) => res.ok ? res.json() : { user: null })
-      .then((body) => setAuthUser(body.user ?? null)).catch(() => setAuthUser(null));
+      .then((body) => setAuthUser(body.user ?? null)).catch(() => setAuthUser(null)).finally(() => setAuthReady(true));
   }, []);
 
   useEffect(() => {
@@ -331,25 +337,41 @@ export function MindMapApp() {
     (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
   };
 
-  if (loading) return <main className="loading"><div className="brand-mark">M</div><p>Opening your board…</p></main>;
+  if (loading || !authReady) return <main className="loading"><div className="brand-mark">M</div><p>Opening your board…</p></main>;
+
+  if (!authUser && !hasSharedMap) return <main className="app-shell welcome-shell">
+    <header className="topbar welcome-topbar">
+      <div className="brand-mark" aria-label="Mindflow">M</div>
+      <div className="top-actions"><button className="login-button" onClick={() => { setAuthMode("login"); setAuthOpen(true); }}>Log in</button></div>
+    </header>
+    <section className="welcome-screen" aria-label="Welcome to Mindflow">
+      {/* The supplied full-bleed welcome artwork is intentionally rendered as-is. */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/mindflow-welcome.png" alt="Welcome to Mindflow — organize ideas, plan with clarity, and execute with focus" />
+    </section>
+    {authOpen && <AuthDialog user={null} initialMode={authMode} onClose={() => setAuthOpen(false)}
+      onSignedIn={(user) => { setAuthUser(user); setAuthOpen(false); }} onSignedOut={() => setAuthUser(null)} />}
+  </main>;
 
   return (
     <main className="app-shell" data-permission={permission}>
       <header className="topbar">
         <div className="brand-mark" aria-label="Mindflow">M</div>
-        <button className="library-button" onClick={loadLibrary} aria-label="My mind maps"><span>☷</span><span>My maps</span></button>
-        <button className="icon-button" onClick={newBoard} disabled={!canEdit} aria-label="New mind map" title="New mind map">＋</button>
-        <div className="title-wrap">
-          <input aria-label="Board title" value={title} disabled={!canEdit} onChange={(e) => { setTitle(e.target.value); markChanged(); }} />
-          <span className={`save-status ${saveState}`}>{saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved" : saveState === "error" ? "Save failed" : "Unsaved"}</span>
-        </div>
-        <div className="top-actions">
-          {!canEdit && <span className="view-badge">View only</span>}
-          <button className="share-button" onClick={() => setShareOpen(true)}>Share</button>
-          <button className="account-button" onClick={() => { setAuthMode("login"); setAuthOpen(true); }} aria-label={authUser ? `Account for ${authUser.name}` : "Sign in or register"}>
-            {authUser ? authUser.name.slice(0, 1).toUpperCase() : "Sign in"}
-          </button>
-        </div>
+        {authUser ? <>
+          <button className="library-button" onClick={loadLibrary} aria-label="My mind maps"><span>☷</span><span>My maps</span></button>
+          <button className="icon-button" onClick={newBoard} disabled={!canEdit} aria-label="New mind map" title="New mind map">＋</button>
+          <div className="title-wrap">
+            <input aria-label="Board title" value={title} disabled={!canEdit} onChange={(e) => { setTitle(e.target.value); markChanged(); }} />
+            <span className={`save-status ${saveState}`}>{saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved" : saveState === "error" ? "Save failed" : "Unsaved"}</span>
+          </div>
+          <div className="top-actions">
+            {!canEdit && <span className="view-badge">View only</span>}
+            <button className="share-button" onClick={() => setShareOpen(true)}>Share</button>
+            <button className="account-button" onClick={() => { setAuthMode("login"); setAuthOpen(true); }} aria-label={`Account for ${authUser.name}`}>
+              {authUser.name.slice(0, 1).toUpperCase()}
+            </button>
+          </div>
+        </> : <div className="top-actions"><button className="login-button" onClick={() => { setAuthMode("login"); setAuthOpen(true); }}>Log in</button></div>}
       </header>
 
       {canEdit && <aside className="left-tools" aria-label="Canvas tools">
