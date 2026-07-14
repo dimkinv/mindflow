@@ -68,6 +68,14 @@ For a public service, configure Cloudflare rate limits for `/api/auth/login` and
 `/api/auth/register`. Email verification and password reset require an email
 delivery provider and are not included yet.
 
+## Live collaboration
+
+People who open the same editable map link join a board-specific WebSocket room.
+Node additions, moves, and text edits are shared immediately; regular autosave
+persists the resulting board to D1. The `CollaborationRoom` Durable Object and
+its `v1` migration are declared in `wrangler.jsonc`, so `npm run deploy` will
+provision the room automatically.
+
 ## Useful commands
 
 - `npm run dev`: local development

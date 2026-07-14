@@ -13,5 +13,13 @@
       "migrations_dir": "drizzle"
     }
   ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "COLLABORATION", "class_name": "CollaborationRoom" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["CollaborationRoom"] }
+  ],
   "observability": { "enabled": true }
 }

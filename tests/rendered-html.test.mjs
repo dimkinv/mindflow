@@ -26,8 +26,10 @@ test("ships the complete Mindflow editor surface", async () => {
 });
 
 test("ships durable user-owned multi-document storage and permissioned sharing", async () => {
-  const [wrangler, schema, route, client, migration, ownershipMigration, authMigration, auth, login, register] = await Promise.all([
+  const [wrangler, worker, collaborationRoom, schema, route, client, migration, ownershipMigration, authMigration, auth, login, register] = await Promise.all([
     readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8"),
+    readFile(new URL("../worker/index.ts", import.meta.url), "utf8"),
+    readFile(new URL("../worker/collaboration-room.ts", import.meta.url), "utf8"),
     readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/maps/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/mind-map-app.tsx", import.meta.url), "utf8"),
@@ -40,6 +42,11 @@ test("ships durable user-owned multi-document storage and permissioned sharing",
   ]);
   assert.match(wrangler, /"binding": "DB"/);
   assert.match(wrangler, /"main": "\.\/worker\/index\.ts"/);
+  assert.match(wrangler, /COLLABORATION/);
+  assert.match(worker, /api\/collaboration/);
+  assert.match(worker, /CollaborationRoom/);
+  assert.match(collaborationRoom, /WebSocketPair/);
+  assert.match(collaborationRoom, /webSocketMessage/);
   assert.match(schema, /viewToken/);
   assert.match(schema, /editToken/);
   assert.match(schema, /ownerEmail/);
@@ -57,6 +64,7 @@ test("ships durable user-owned multi-document storage and permissioned sharing",
   assert.match(client, /event\.key === "Tab"/);
   assert.match(client, /\[role='dialog'\]/);
   assert.match(client, /AUTOSAVE_DELAY_MS/);
+  assert.match(client, /if \(!canEdit \|\| saveState !== "unsaved"\) return/);
   assert.match(client, /data-plus-side/);
   assert.match(client, /startConnect/);
   assert.match(client, /currentTarget\.select\(\)/);
@@ -67,6 +75,8 @@ test("ships durable user-owned multi-document storage and permissioned sharing",
   assert.match(client, /Center on root note/);
   assert.match(client, /LocateFixed/);
   assert.match(client, /Create your account/);
+  assert.match(client, /new WebSocket/);
+  assert.match(client, /collaborationSocketRef/);
   assert.match(migration, /CREATE TABLE `mind_maps`/);
   assert.match(ownershipMigration, /ADD `owner_email`/);
 });

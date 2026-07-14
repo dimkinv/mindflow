@@ -10,6 +10,7 @@ type EdgeItem = { id: string; from: string; to: string; color: string; shape: Li
 type BoardData = { nodes: NodeItem[]; edges: EdgeItem[] };
 type MapSummary = { id: string; title: string; updatedAt: string; editToken: string };
 type AuthUser = { id: string; name: string; email: string };
+type CollaborationMessage = { type?: "sync" | "board"; board?: BoardData; title?: string };
 
 const COLORS = ["#ff5c35", "#ffad1f", "#ffd43b", "#6fd83d", "#26c6b7", "#20b8e5", "#4d7df3", "#7a4cff", "#c64ee8", "#f43fa4"];
 const NODE_W = 176;
@@ -38,6 +39,10 @@ const starter: BoardData = {
 
 const cloneStarter = () => JSON.parse(JSON.stringify(starter)) as BoardData;
 const uid = () => crypto.randomUUID();
+
+function isBoardData(value: unknown): value is BoardData {
+  return Boolean(value && typeof value === "object" && Array.isArray((value as BoardData).nodes) && Array.isArray((value as BoardData).edges));
+}
 
 function pathFor(edge: EdgeItem, from: NodeItem, to: NodeItem) {
   const leftToRight = to.x >= from.x;
@@ -126,7 +131,14 @@ export function MindMapApp() {
   const canvasRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ id?: string; startX: number; startY: number; nodePositions?: Record<string, { x: number; y: number }>; panX?: number; panY?: number } | null>(null);
   const pinchRef = useRef<{ distance: number; zoom: number; baseX: number; baseY: number; worldX: number; worldY: number } | null>(null);
+  const collaborationSocketRef = useRef<WebSocket | null>(null);
+  const boardRef = useRef(board);
+  const titleRef = useRef(title);
+  const receivedRemoteUpdateRef = useRef(false);
   const canEdit = permission === "edit";
+
+  useEffect(() => { boardRef.current = board; }, [board]);
+  useEffect(() => { titleRef.current = title; }, [title]);
 
   const flash = useCallback((message: string) => {
     setToast(message);
@@ -153,6 +165,28 @@ export function MindMapApp() {
       .catch((error) => flash(error.message || "Could not open this board."))
       .finally(() => setLoading(false));
   }, [flash]);
+
+  useEffect(() => {
+    const token = canEdit ? editToken : viewToken;
+    if (!mapId || !token) return;
+    const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+    const socket = new WebSocket(`${protocol}://${window.location.host}/api/collaboration?map=${encodeURIComponent(mapId)}&token=${encodeURIComponent(token)}`);
+    collaborationSocketRef.current = socket;
+    socket.onopen = () => socket.send(JSON.stringify({ type: "join", board: boardRef.current, title: titleRef.current }));
+    socket.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data) as CollaborationMessage;
+        if ((message.type === "sync" || message.type === "board") && isBoardData(message.board)) {
+          receivedRemoteUpdateRef.current = true;
+          setBoard(message.board);
+          if (typeof message.title === "string") setTitle(message.title);
+        }
+      } catch {
+        // Ignore an invalid collaboration update and keep the current board intact.
+      }
+    };
+    return () => { if (collaborationSocketRef.current === socket) collaborationSocketRef.current = null; socket.close(); };
+  }, [canEdit, editToken, mapId, viewToken]);
 
   const markChanged = () => { if (canEdit) setSaveState("unsaved"); };
 
@@ -270,10 +304,17 @@ export function MindMapApp() {
   }, [board, canEdit, editToken, flash, mapId, saveState, title]);
 
   useEffect(() => {
-    if (!canEdit || !authUser || saveState !== "unsaved") return;
+    if (!canEdit || saveState !== "unsaved") return;
     const timeout = window.setTimeout(() => { void save(false); }, AUTOSAVE_DELAY_MS);
     return () => window.clearTimeout(timeout);
-  }, [authUser, canEdit, save, saveState]);
+  }, [canEdit, save, saveState]);
+
+  useEffect(() => {
+    const socket = collaborationSocketRef.current;
+    if (!canEdit || !mapId || socket?.readyState !== WebSocket.OPEN) return;
+    if (receivedRemoteUpdateRef.current) { receivedRemoteUpdateRef.current = false; return; }
+    socket.send(JSON.stringify({ type: "board", board, title }));
+  }, [board, canEdit, mapId, title]);
 
   const newBoard = () => {
     if (!canEdit || (saveState === "unsaved" && !window.confirm("Start a new board and discard unsaved changes?"))) return;
