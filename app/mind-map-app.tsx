@@ -123,7 +123,8 @@ export function MindMapApp() {
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [nodePlusSide, setNodePlusSide] = useState<{ id: string; side: "left" | "right" } | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
-  const dragRef = useRef<{ id?: string; startX: number; startY: number; nodeX?: number; nodeY?: number; panX?: number; panY?: number } | null>(null);
+  const dragRef = useRef<{ id?: string; startX: number; startY: number; nodePositions?: Record<string, { x: number; y: number }>; panX?: number; panY?: number } | null>(null);
+  const pinchRef = useRef<{ distance: number; zoom: number; baseX: number; baseY: number; worldX: number; worldY: number } | null>(null);
   const canEdit = permission === "edit";
 
   const flash = useCallback((message: string) => {
@@ -316,7 +317,15 @@ export function MindMapApp() {
   const onNodePointerDown = (event: React.PointerEvent, node: NodeItem) => {
     if (!canEdit || editingNode) return;
     event.stopPropagation();
-    dragRef.current = { id: node.id, startX: event.clientX, startY: event.clientY, nodeX: node.x, nodeY: node.y };
+    const descendantIds = new Set<string>([node.id]); let foundChild = true;
+    while (foundChild) {
+      foundChild = false;
+      board.nodes.forEach((candidate) => {
+        if (candidate.parentId && descendantIds.has(candidate.parentId) && !descendantIds.has(candidate.id)) { descendantIds.add(candidate.id); foundChild = true; }
+      });
+    }
+    const nodePositions = Object.fromEntries(board.nodes.filter((candidate) => descendantIds.has(candidate.id)).map((candidate) => [candidate.id, { x: candidate.x, y: candidate.y }]));
+    dragRef.current = { id: node.id, startX: event.clientX, startY: event.clientY, nodePositions };
     (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
   };
 
@@ -324,7 +333,10 @@ export function MindMapApp() {
     const drag = dragRef.current; if (!drag) return;
     if (drag.id) {
       const dx = (event.clientX - drag.startX) / zoom; const dy = (event.clientY - drag.startY) / zoom;
-      updateNodes((nodes) => nodes.map((n) => n.id === drag.id ? { ...n, x: (drag.nodeX ?? 0) + dx, y: (drag.nodeY ?? 0) + dy } : n));
+      updateNodes((nodes) => nodes.map((n) => {
+        const position = drag.nodePositions?.[n.id];
+        return position ? { ...n, x: position.x + dx, y: position.y + dy } : n;
+      }));
     } else {
       setPan({ x: (drag.panX ?? 0) + event.clientX - drag.startX, y: (drag.panY ?? 0) + event.clientY - drag.startY });
     }
@@ -335,6 +347,50 @@ export function MindMapApp() {
     setSelectedNode(null); setSelectedEdge(null); setMenu(null); setColorOpen(false); setLineOpen(false);
     dragRef.current = { startX: event.clientX, startY: event.clientY, panX: pan.x, panY: pan.y };
     (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+  };
+
+  const zoomAtPointer = (nextZoom: number, clientX: number, clientY: number) => {
+    const canvas = canvasRef.current; const world = canvas?.querySelector<HTMLElement>(".canvas-world");
+    if (!canvas || !world) { setZoom(nextZoom); return; }
+    const worldBounds = world.getBoundingClientRect();
+    const baseX = worldBounds.left - pan.x; const baseY = worldBounds.top - pan.y;
+    const worldX = (clientX - baseX) / zoom; const worldY = (clientY - baseY) / zoom;
+    setPan({ x: clientX - baseX - worldX * nextZoom, y: clientY - baseY - worldY * nextZoom });
+    setZoom(nextZoom);
+  };
+
+  const onCanvasWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const nextZoom = Math.min(1.5, Math.max(.45, zoom * Math.exp(-event.deltaY * .0015)));
+    if (nextZoom !== zoom) zoomAtPointer(nextZoom, event.clientX, event.clientY);
+  };
+
+  const onTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
+    if (event.touches.length !== 2) return;
+    const [first, second] = Array.from(event.touches); const canvas = canvasRef.current; const world = canvas?.querySelector<HTMLElement>(".canvas-world");
+    if (!world) return;
+    const centerX = (first.clientX + second.clientX) / 2; const centerY = (first.clientY + second.clientY) / 2; const worldBounds = world.getBoundingClientRect();
+    const baseX = worldBounds.left - pan.x; const baseY = worldBounds.top - pan.y;
+    pinchRef.current = { distance: Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY), zoom, baseX, baseY, worldX: (centerX - baseX) / zoom, worldY: (centerY - baseY) / zoom };
+    dragRef.current = null;
+  };
+
+  const onTouchMove = (event: React.TouchEvent<HTMLDivElement>) => {
+    const pinch = pinchRef.current; if (!pinch || event.touches.length !== 2) return;
+    event.preventDefault();
+    const [first, second] = Array.from(event.touches); const centerX = (first.clientX + second.clientX) / 2; const centerY = (first.clientY + second.clientY) / 2;
+    const nextZoom = Math.min(1.5, Math.max(.45, pinch.zoom * Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY) / pinch.distance));
+    setPan({ x: centerX - pinch.baseX - pinch.worldX * nextZoom, y: centerY - pinch.baseY - pinch.worldY * nextZoom });
+    setZoom(nextZoom);
+  };
+
+  const centerOnRoot = () => {
+    const root = board.nodes.find((node) => !node.parentId) ?? board.nodes[0];
+    const canvas = canvasRef.current; const world = canvas?.querySelector<HTMLElement>(".canvas-world");
+    if (!root || !canvas || !world) return;
+    const canvasBounds = canvas.getBoundingClientRect(); const worldBounds = world.getBoundingClientRect();
+    const baseX = worldBounds.left - pan.x; const baseY = worldBounds.top - pan.y;
+    setPan({ x: canvasBounds.left + canvasBounds.width / 2 - baseX - (root.x + NODE_W / 2) * zoom, y: canvasBounds.top + canvasBounds.height / 2 - baseY - (root.y + NODE_H / 2) * zoom });
   };
 
   if (loading || !authReady) return <main className="loading"><div className="brand-mark">M</div><p>Opening your board…</p></main>;
@@ -378,6 +434,7 @@ export function MindMapApp() {
         <button className="tool active" aria-label="Select tool" title="Select">↖</button>
         <button className={`tool ${connectFrom !== null ? "active" : ""}`} onClick={() => startConnect()} aria-label="Connect two nodes" title="Connect nodes">⌁</button>
         <button className="tool" onClick={() => selectedNode && addChild(selectedNode)} disabled={!selectedNode} aria-label="Add child node" title="Add child (Tab)">＋</button>
+        <button className="tool center-root-button" onClick={centerOnRoot} aria-label="Center on root note" title="Center on root note">⌾</button>
       </aside>}
 
       {canEdit && (selectedNode || selectedEdge) && <div className="format-bar">
@@ -401,7 +458,7 @@ export function MindMapApp() {
         </div>}
       </div>}
 
-      <section ref={canvasRef} className={`canvas ${connectFrom ? "connecting" : ""}`} onPointerDown={onCanvasPointerDown} onPointerMove={onPointerMove} onPointerUp={() => { dragRef.current = null; }} onPointerCancel={() => { dragRef.current = null; }} onContextMenu={(e) => e.preventDefault()}>
+      <section ref={canvasRef} className={`canvas ${connectFrom ? "connecting" : ""}`} onPointerDown={onCanvasPointerDown} onPointerMove={onPointerMove} onPointerUp={() => { dragRef.current = null; }} onPointerCancel={() => { dragRef.current = null; }} onWheel={onCanvasWheel} onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={() => { pinchRef.current = null; }} onTouchCancel={() => { pinchRef.current = null; }} onContextMenu={(e) => e.preventDefault()}>
         <div className="canvas-world" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}>
           <svg className="edges" width="1600" height="900" aria-label="Mind map connections">
             {board.edges.map((edge) => {
@@ -419,7 +476,7 @@ export function MindMapApp() {
               onPointerDown={(e) => onNodePointerDown(e, node)} onClick={(e) => { e.stopPropagation(); selectNode(node.id); }} onDoubleClick={(e) => { e.stopPropagation(); if (canEdit) setEditingNode(node.id); }}
               onPointerMove={(e) => updateNodePlusSide(e, node.id)}
               onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); if (canEdit) { setSelectedNode(node.id); setMenu({ x: e.clientX, y: e.clientY, nodeId: node.id }); } }}>
-              {editing ? <input autoFocus value={node.text} aria-label="Node text" onChange={(e) => updateNodes((nodes) => nodes.map((n) => n.id === node.id ? { ...n, text: e.target.value } : n))} onBlur={() => setEditingNode(null)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === "Escape") { e.preventDefault(); setEditingNode(null); } }} /> : <span>{node.text}</span>}
+              {editing ? <input autoFocus value={node.text} aria-label="Node text" onFocus={(event) => { if (node.text === "New idea") event.currentTarget.select(); }} onChange={(e) => updateNodes((nodes) => nodes.map((n) => n.id === node.id ? { ...n, text: e.target.value } : n))} onBlur={() => setEditingNode(null)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === "Escape") { e.preventDefault(); setEditingNode(null); } }} /> : <span>{node.text}</span>}
               {canEdit && <button className="node-plus" aria-label={`Add child to ${node.text}`} title="Add child" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); addChild(node.id); }}>＋</button>}
             </div>;
           })}

@@ -59,6 +59,12 @@ test("ships durable user-owned multi-document storage and permissioned sharing",
   assert.match(client, /AUTOSAVE_DELAY_MS/);
   assert.match(client, /data-plus-side/);
   assert.match(client, /startConnect/);
+  assert.match(client, /currentTarget\.select\(\)/);
+  assert.match(client, /descendantIds/);
+  assert.match(client, /nodePositions/);
+  assert.match(client, /onCanvasWheel/);
+  assert.match(client, /onTouchMove/);
+  assert.match(client, /Center on root note/);
   assert.match(client, /Create your account/);
   assert.match(migration, /CREATE TABLE `mind_maps`/);
   assert.match(ownershipMigration, /ADD `owner_email`/);
