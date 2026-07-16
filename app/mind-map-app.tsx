@@ -10,7 +10,7 @@ type EdgeItem = { id: string; from: string; to: string; color: string; shape: Li
 type BoardData = { nodes: NodeItem[]; edges: EdgeItem[] };
 type MapSummary = { id: string; title: string; updatedAt: string; editToken: string };
 type AuthUser = { id: string; name: string; email: string };
-type CollaborationMessage = { type?: "sync" | "board"; board?: BoardData; title?: string };
+type CollaborationMessage = { type?: "board"; board?: BoardData; title?: string };
 
 const COLORS = ["#ff5c35", "#ffad1f", "#ffd43b", "#6fd83d", "#26c6b7", "#20b8e5", "#4d7df3", "#7a4cff", "#c64ee8", "#f43fa4"];
 const NODE_W = 176;
@@ -133,13 +133,8 @@ export function MindMapApp() {
   const dragRef = useRef<{ id?: string; startX: number; startY: number; nodePositions?: Record<string, { x: number; y: number }>; panX?: number; panY?: number } | null>(null);
   const pinchRef = useRef<{ distance: number; zoom: number; baseX: number; baseY: number; worldX: number; worldY: number } | null>(null);
   const collaborationSocketRef = useRef<WebSocket | null>(null);
-  const boardRef = useRef(board);
-  const titleRef = useRef(title);
   const receivedRemoteUpdateRef = useRef(false);
   const canEdit = permission === "edit";
-
-  useEffect(() => { boardRef.current = board; }, [board]);
-  useEffect(() => { titleRef.current = title; }, [title]);
 
   const flash = useCallback((message: string) => {
     setToast(message);
@@ -173,11 +168,11 @@ export function MindMapApp() {
     const protocol = window.location.protocol === "https:" ? "wss" : "ws";
     const socket = new WebSocket(`${protocol}://${window.location.host}/api/collaboration?map=${encodeURIComponent(mapId)}&token=${encodeURIComponent(token)}`);
     collaborationSocketRef.current = socket;
-    socket.onopen = () => socket.send(JSON.stringify({ type: "join", board: boardRef.current, title: titleRef.current }));
+    socket.onopen = () => socket.send(JSON.stringify({ type: "join" }));
     socket.onmessage = (event) => {
       try {
         const message = JSON.parse(event.data) as CollaborationMessage;
-        if ((message.type === "sync" || message.type === "board") && isBoardData(message.board)) {
+        if (message.type === "board" && isBoardData(message.board)) {
           receivedRemoteUpdateRef.current = true;
           setBoard(message.board);
           if (typeof message.title === "string") setTitle(message.title);
@@ -431,7 +426,9 @@ export function MindMapApp() {
     if (!canvas || !world) { setZoom(nextZoom); return; }
     const worldBounds = world.getBoundingClientRect();
     const baseX = worldBounds.left - pan.x; const baseY = worldBounds.top - pan.y;
-    const worldX = (clientX - baseX) / zoom; const worldY = (clientY - baseY) / zoom;
+    // Measure from the world's current on-screen position. Omitting pan here
+    // makes each zoom behave as if the canvas had never been moved.
+    const worldX = (clientX - worldBounds.left) / zoom; const worldY = (clientY - worldBounds.top) / zoom;
     setPan({ x: clientX - baseX - worldX * nextZoom, y: clientY - baseY - worldY * nextZoom });
     setZoom(nextZoom);
   };
@@ -442,13 +439,20 @@ export function MindMapApp() {
     if (nextZoom !== zoom) zoomAtPointer(nextZoom, event.clientX, event.clientY);
   };
 
+  const zoomAtCanvasCenter = (change: number) => {
+    const canvasBounds = canvasRef.current?.getBoundingClientRect();
+    const nextZoom = Math.min(1.5, Math.max(.45, zoom + change));
+    if (!canvasBounds || nextZoom === zoom) return;
+    zoomAtPointer(nextZoom, canvasBounds.left + canvasBounds.width / 2, canvasBounds.top + canvasBounds.height / 2);
+  };
+
   const onTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
     if (event.touches.length !== 2) return;
     const [first, second] = Array.from(event.touches); const canvas = canvasRef.current; const world = canvas?.querySelector<HTMLElement>(".canvas-world");
     if (!world) return;
     const centerX = (first.clientX + second.clientX) / 2; const centerY = (first.clientY + second.clientY) / 2; const worldBounds = world.getBoundingClientRect();
     const baseX = worldBounds.left - pan.x; const baseY = worldBounds.top - pan.y;
-    pinchRef.current = { distance: Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY), zoom, baseX, baseY, worldX: (centerX - baseX) / zoom, worldY: (centerY - baseY) / zoom };
+    pinchRef.current = { distance: Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY), zoom, baseX, baseY, worldX: (centerX - worldBounds.left) / zoom, worldY: (centerY - worldBounds.top) / zoom };
     dragRef.current = null;
   };
 
@@ -562,7 +566,7 @@ export function MindMapApp() {
         <div className="canvas-hint">{reparentingNode ? "Choose a new parent node · Esc to cancel" : connectFrom ? "Choose a node to finish the connection · Esc to cancel" : canEdit ? "Select a node and press Tab to add a branch" : "You’re viewing this board"}</div>
       </section>
 
-      <div className="zoom-controls"><button onClick={() => setZoom((z) => Math.max(.45, z - .1))} aria-label="Zoom out">−</button><span>{Math.round(zoom * 100)}%</span><button onClick={() => setZoom((z) => Math.min(1.5, z + .1))} aria-label="Zoom in">＋</button><button onClick={() => { setPan({ x: 0, y: 0 }); setZoom(.9); }} aria-label="Reset view">⌂</button></div>
+      <div className="zoom-controls"><button onClick={() => zoomAtCanvasCenter(-.1)} aria-label="Zoom out">−</button><span>{Math.round(zoom * 100)}%</span><button onClick={() => zoomAtCanvasCenter(.1)} aria-label="Zoom in">＋</button><button onClick={() => { setPan({ x: 0, y: 0 }); setZoom(.9); }} aria-label="Reset view">⌂</button></div>
 
       {menu && <div className="context-menu" style={{ left: menu.x, top: menu.y }} role="menu" onPointerDown={(e) => e.stopPropagation()}>
         <button role="menuitem" onClick={() => addChild(menu.nodeId)}><span>＋</span>Add child <kbd>Tab</kbd></button>

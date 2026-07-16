@@ -20,8 +20,6 @@ export class CollaborationRoom implements DurableObject {
     const pair = new WebSocketPair(); const [client, server] = Object.values(pair);
     this.ctx.acceptWebSocket(server);
     server.serializeAttachment({ canEdit } satisfies SocketAttachment);
-    const latest = await this.ctx.storage.get<RoomState>("latest");
-    if (latest) server.send(JSON.stringify({ type: "sync", ...latest }));
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -31,14 +29,8 @@ export class CollaborationRoom implements DurableObject {
     try {
       const payload = JSON.parse(message) as { type?: string; board?: unknown; title?: unknown };
       const state = { board: payload.board, title: payload.title };
-      if (!validState(state)) return;
-      if (payload.type === "join") {
-        const latest = await this.ctx.storage.get<RoomState>("latest");
-        if (latest) { socket.send(JSON.stringify({ type: "sync", ...latest })); return; }
-        if (!attachment?.canEdit) return;
-      } else if (payload.type !== "board" || !attachment?.canEdit) return;
-
-      await this.ctx.storage.put("latest", state);
+      if (payload.type === "join") return;
+      if (payload.type !== "board" || !attachment?.canEdit || !validState(state)) return;
       const update = JSON.stringify({ type: "board", ...state });
       for (const peer of this.ctx.getWebSockets()) if (peer !== socket) peer.send(update);
     } catch {

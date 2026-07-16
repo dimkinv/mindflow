@@ -3,7 +3,7 @@
 :root { --ink: #17161f; --muted: #747486; --purple: #5b43d6; --purple-dark: #4631bd; --border: #e7e5ee; }
 * { box-sizing: border-box; }
 html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; }
-body { color: var(--ink); font-family: var(--font-geist), Inter, Arial, sans-serif; background: #f7f7fa; }
+body { color: var(--ink); font-family: var(--font-geist, Inter), Arial, sans-serif; background: #f7f7fa; }
 button, input { font: inherit; }
 button { color: inherit; }
 
@@ -62,7 +62,7 @@ button { color: inherit; }
 .color-popover { left: 80px; width: 232px; }.swatches { display: grid; grid-template-columns: repeat(5, 32px); gap: 9px; }.swatches button { width: 32px; height: 32px; border-radius: 50%; border: 2px solid #fff; outline: 1px solid rgba(0,0,0,.12); cursor: pointer; }.swatches button:hover { transform: scale(1.12); }.color-popover p { margin: 13px 0 0; color: var(--muted); font-size: 11px; }
 
 .context-menu { position: fixed; z-index: 80; width: 240px; padding: 7px; border: 1px solid var(--border); border-radius: 12px; background: #fff; box-shadow: 0 12px 34px rgba(25,20,47,.18); }
-.context-menu button { width: 100%; height: 38px; padding: 0 10px; display: grid; grid-template-columns: 24px 1fr auto; align-items: center; border: 0; border-radius: 8px; background: transparent; text-align: left; font-size: 13px; cursor: pointer; }.context-menu button:hover { background: #f5f3ff; }.context-menu button.danger { color: #c73149; }.context-menu kbd { color: #9b98a6; font: 11px var(--font-geist); }.menu-divider { height: 1px; margin: 5px 7px; background: var(--border); }
+.context-menu button { width: 100%; height: 38px; padding: 0 10px; display: grid; grid-template-columns: 24px 1fr auto; align-items: center; border: 0; border-radius: 8px; background: transparent; text-align: left; font-size: 13px; cursor: pointer; }.context-menu button:hover { background: #f5f3ff; }.context-menu button.danger { color: #c73149; }.context-menu kbd { color: #9b98a6; font: 11px var(--font-geist, Inter); }.menu-divider { height: 1px; margin: 5px 7px; background: var(--border); }
 .library-backdrop { position: fixed; z-index: 90; inset: 0; background: rgba(18,15,31,.25); backdrop-filter: blur(2px); }
 .library-panel { width: min(380px, calc(100vw - 24px)); height: 100%; padding: 22px 18px; display: flex; flex-direction: column; background: #fbfbfd; box-shadow: 16px 0 45px rgba(22,17,44,.18); animation: libraryIn .18s ease-out; }
 @keyframes libraryIn { from { transform: translateX(-22px); opacity: 0; } }
