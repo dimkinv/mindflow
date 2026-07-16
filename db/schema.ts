@@ -34,3 +34,12 @@ export const mindMaps = sqliteTable("mind_maps", {
   index("mind_maps_owner_updated_idx").on(table.ownerEmail, table.updatedAt),
   index("mind_maps_owner_user_updated_idx").on(table.ownerUserId, table.updatedAt),
 ]);
+
+export const feedback = sqliteTable("feedback", {
+  id: text("id").primaryKey(),
+  sentiment: text("sentiment").notNull(),
+  message: text("message").notNull(),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  index("feedback_created_at_idx").on(table.createdAt),
+]);

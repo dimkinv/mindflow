@@ -16,6 +16,7 @@ const COLORS = ["#ff5c35", "#ffad1f", "#ffd43b", "#6fd83d", "#26c6b7", "#20b8e5"
 const NODE_W = 176;
 const NODE_H = 48;
 const AUTOSAVE_DELAY_MS = 1500;
+const MAX_FEEDBACK_LENGTH = 200;
 
 const starter: BoardData = {
   nodes: [
@@ -129,6 +130,11 @@ export function MindMapApp() {
   const [authOpen, setAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [nodePlusSide, setNodePlusSide] = useState<{ id: string; side: "left" | "right" } | null>(null);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [feedbackSentiment, setFeedbackSentiment] = useState<"like" | "dislike" | null>(null);
+  const [feedbackMessage, setFeedbackMessage] = useState("");
+  const [feedbackError, setFeedbackError] = useState("");
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
   const canvasRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ id?: string; startX: number; startY: number; nodePositions?: Record<string, { x: number; y: number }>; panX?: number; panY?: number } | null>(null);
   const pinchRef = useRef<{ distance: number; zoom: number; baseX: number; baseY: number; worldX: number; worldY: number } | null>(null);
@@ -140,6 +146,21 @@ export function MindMapApp() {
     setToast(message);
     window.setTimeout(() => setToast(""), 2200);
   }, []);
+
+  const submitFeedback = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const message = feedbackMessage.trim();
+    if (!feedbackSentiment) { setFeedbackError("Choose like or dislike before submitting."); return; }
+    if (message.length > MAX_FEEDBACK_LENGTH) { setFeedbackError("Feedback must be 200 characters or fewer."); return; }
+    setFeedbackSubmitting(true); setFeedbackError("");
+    try {
+      const response = await fetch("/api/feedback", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sentiment: feedbackSentiment, message }) });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error);
+      setFeedbackOpen(false); setFeedbackSentiment(null); setFeedbackMessage(""); flash("Thanks for your feedback");
+    } catch (error) { setFeedbackError(error instanceof Error ? error.message : "Your feedback could not be submitted."); }
+    finally { setFeedbackSubmitting(false); }
+  };
 
   useEffect(() => {
     fetch("/api/auth/session", { cache: "no-store" }).then(async (res) => res.ok ? res.json() : { user: null })
@@ -567,6 +588,22 @@ export function MindMapApp() {
       </section>
 
       <div className="zoom-controls"><button onClick={() => zoomAtCanvasCenter(-.1)} aria-label="Zoom out">−</button><span>{Math.round(zoom * 100)}%</span><button onClick={() => zoomAtCanvasCenter(.1)} aria-label="Zoom in">＋</button><button onClick={() => { setPan({ x: 0, y: 0 }); setZoom(.9); }} aria-label="Reset view">⌂</button></div>
+
+      <div className="feedback-control">
+        {feedbackOpen && <form className="feedback-popover" onSubmit={submitFeedback} role="dialog" aria-labelledby="feedback-title">
+          <div className="feedback-heading"><h2 id="feedback-title">Share feedback</h2><button type="button" onClick={() => { setFeedbackOpen(false); setFeedbackError(""); }} aria-label="Close feedback form">×</button></div>
+          <p>How is Mindflow working for you?</p>
+          <div className="feedback-rating" aria-label="Feedback rating">
+            <button type="button" className={feedbackSentiment === "like" ? "selected" : ""} aria-pressed={feedbackSentiment === "like"} onClick={() => { setFeedbackSentiment("like"); setFeedbackError(""); }}>👍 Like</button>
+            <button type="button" className={feedbackSentiment === "dislike" ? "selected" : ""} aria-pressed={feedbackSentiment === "dislike"} onClick={() => { setFeedbackSentiment("dislike"); setFeedbackError(""); }}>👎 Dislike</button>
+          </div>
+          <label htmlFor="feedback-message">Additional feedback <span>(optional)</span></label>
+          <textarea id="feedback-message" value={feedbackMessage} maxLength={MAX_FEEDBACK_LENGTH} onChange={(event) => { setFeedbackMessage(event.target.value); setFeedbackError(""); }} placeholder="Tell us more..." />
+          <div className="feedback-footer"><span>{feedbackMessage.length}/{MAX_FEEDBACK_LENGTH}</span><button type="submit" disabled={feedbackSubmitting}>{feedbackSubmitting ? "Sending..." : "Submit"}</button></div>
+          {feedbackError && <div className="feedback-error" role="alert">{feedbackError}</div>}
+        </form>}
+        <button className="feedback-button" onClick={() => { setFeedbackOpen((open) => !open); setFeedbackError(""); }} aria-expanded={feedbackOpen}>Feedback</button>
+      </div>
 
       {menu && <div className="context-menu" style={{ left: menu.x, top: menu.y }} role="menu" onPointerDown={(e) => e.stopPropagation()}>
         <button role="menuitem" onClick={() => addChild(menu.nodeId)}><span>＋</span>Add child <kbd>Tab</kbd></button>
