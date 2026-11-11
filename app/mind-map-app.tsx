@@ -79,7 +79,7 @@ export function MindMapApp() {
   const [editToken, setEditToken] = useState<string | null>(null);
   const [viewToken, setViewToken] = useState<string | null>(null);
   const [permission, setPermission] = useState<"edit" | "view">("edit");
-  const [saveState, setSaveState] = useState<"saved" | "saving" | "unsaved" | "error">("unsaved");
+  const [saveState, setSaveState] = useState<"idle" | "saved" | "saving" | "unsaved" | "error">("idle");
   const [toast, setToast] = useState("");
   const [loading, setLoading] = useState(true);
   const [authReady, setAuthReady] = useState(false);
@@ -215,6 +215,7 @@ export function MindMapApp() {
 
   const save = useCallback(async (announce = true) => {
     if (!canEdit || saveState === "saving") return;
+    if (loading || !authReady) return;
     if (mapId && removedMapIdsRef.current.has(mapId)) return;
     setSaveState("saving");
     try {
@@ -231,13 +232,14 @@ export function MindMapApp() {
       if (mapId && removedMapIdsRef.current.has(mapId)) return;
       setSaveState("error"); flash(error instanceof Error ? error.message : "Could not save this board.");
     }
-  }, [board, canEdit, editToken, flash, mapId, saveState, title]);
+  }, [authReady, board, canEdit, editToken, flash, loading, mapId, saveState, title]);
 
   useEffect(() => {
     if (!canEdit || saveState !== "unsaved") return;
+    if (loading || !authReady || (!authUser && !mapId)) return;
     const timeout = window.setTimeout(() => { void save(false); }, AUTOSAVE_DELAY_MS);
     return () => window.clearTimeout(timeout);
-  }, [canEdit, save, saveState]);
+  }, [authReady, authUser, canEdit, loading, mapId, save, saveState]);
 
   useEffect(() => {
     const socket = collaborationSocketRef.current;
@@ -294,7 +296,7 @@ export function MindMapApp() {
           <button className="icon-button" onClick={newBoard} disabled={!canEdit} aria-label="New mind map" title="New mind map">＋</button>
           <div className="title-wrap">
             <input aria-label="Board title" value={title} disabled={!canEdit} onChange={(e) => { setTitle(e.target.value); markChanged(); }} />
-            <span className={`save-status ${saveState}`}>{saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved" : saveState === "error" ? "Save failed" : "Unsaved"}</span>
+            <span className={`save-status ${saveState}`}>{saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved" : saveState === "error" ? "Save failed" : saveState === "idle" ? "Not saved" : "Unsaved"}</span>
           </div>
           <div className="top-actions">
             {!canEdit && <span className="view-badge">View only</span>}
