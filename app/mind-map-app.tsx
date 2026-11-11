@@ -72,6 +72,8 @@ export function MindMapApp() {
   const [shareOpen, setShareOpen] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [maps, setMaps] = useState<MapSummary[]>([]);
+  const [removingMapId, setRemovingMapId] = useState<string | null>(null);
+  const removedMapIdsRef = useRef(new Set<string>());
   const [libraryState, setLibraryState] = useState<"idle" | "loading" | "error">("idle");
   const [mapId, setMapId] = useState<string | null>(null);
   const [editToken, setEditToken] = useState<string | null>(null);
@@ -174,7 +176,7 @@ export function MindMapApp() {
       const body = await res.json();
       if (res.status === 401) { setLibraryOpen(false); setLibraryState("idle"); setAuthMode("login"); setAuthOpen(true); flash("Sign in to see your saved maps"); return; }
       if (!res.ok) throw new Error(body.error);
-      setMaps(body.maps); setLibraryState("idle");
+      setMaps(body.maps.filter((map: MapSummary) => !removedMapIdsRef.current.has(map.id))); setLibraryState("idle");
     } catch (error) {
       setLibraryState("error"); flash(error instanceof Error ? error.message : "Could not load your mind maps.");
     }
@@ -185,19 +187,50 @@ export function MindMapApp() {
     window.location.assign(`${window.location.pathname}?map=${encodeURIComponent(map.id)}&token=${encodeURIComponent(map.editToken)}`);
   };
 
+  const removeMap = async (map: MapSummary) => {
+    if (removingMapId || removedMapIdsRef.current.has(map.id)) return;
+    removedMapIdsRef.current.add(map.id);
+    setRemovingMapId(map.id);
+    try {
+      const response = await fetch(`/api/maps?id=${encodeURIComponent(map.id)}`, { method: "DELETE" });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error);
+      setMaps((current) => current.filter((item) => item.id !== map.id));
+      if (map.id === mapId) {
+        collaborationSocketRef.current?.close();
+        setBoard(createBoard()); setTitle("Untitled mind map");
+        setMapId(null); setEditToken(null); setViewToken(null); setPermission("edit");
+        setSaveState("saved"); setShareOpen(false);
+        window.history.replaceState({}, "", window.location.pathname);
+      }
+      flash("Mind map removed");
+    } catch (error) {
+      removedMapIdsRef.current.delete(map.id);
+      if (map.id === mapId) setSaveState("unsaved");
+      flash(error instanceof Error ? error.message : "Could not remove this mind map.");
+    } finally {
+      setRemovingMapId(null);
+    }
+  };
+
   const save = useCallback(async (announce = true) => {
     if (!canEdit || saveState === "saving") return;
+    if (mapId && removedMapIdsRef.current.has(mapId)) return;
     setSaveState("saving");
     try {
       const res = await fetch("/api/maps", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: mapId, token: editToken, title, data: board }) });
       const body = await res.json();
+      if (mapId && removedMapIdsRef.current.has(mapId)) return;
       if (res.status === 401) { setSaveState("unsaved"); setAuthMode("login"); setAuthOpen(true); flash("Sign in to save this board"); return; }
       if (!res.ok) throw new Error(body.error);
       const result = body.map; setMapId(result.id); setEditToken(result.editToken); setViewToken(result.viewToken); setSaveState("saved");
       setMaps((current) => [{ id: result.id, title, updatedAt: new Date().toISOString(), editToken: result.editToken }, ...current.filter((map) => map.id !== result.id)]);
       const next = `?map=${encodeURIComponent(result.id)}&token=${encodeURIComponent(result.editToken)}`;
       window.history.replaceState({}, "", next); if (announce) flash("Board saved");
-    } catch (error) { setSaveState("error"); flash(error instanceof Error ? error.message : "Could not save this board."); }
+    } catch (error) {
+      if (mapId && removedMapIdsRef.current.has(mapId)) return;
+      setSaveState("error"); flash(error instanceof Error ? error.message : "Could not save this board.");
+    }
   }, [board, canEdit, editToken, flash, mapId, saveState, title]);
 
   useEffect(() => {
@@ -214,6 +247,7 @@ export function MindMapApp() {
   }, [board, canEdit, mapId, title]);
 
   const newBoard = () => {
+    if (removingMapId) return;
     if (!canEdit || (saveState === "unsaved" && !window.confirm("Start a new board and discard unsaved changes?"))) return;
     setBoard(createBoard());
     setTitle("Untitled mind map"); setMapId(null); setEditToken(null); setViewToken(null); setSaveState("unsaved");
@@ -295,14 +329,17 @@ export function MindMapApp() {
       {libraryOpen && <div className="library-backdrop" onMouseDown={() => setLibraryOpen(false)}>
         <aside className="library-panel" aria-label="My mind maps" onMouseDown={(e) => e.stopPropagation()}>
           <div className="library-header"><div><span>Your workspace</span><h2>My mind maps</h2></div><button onClick={() => setLibraryOpen(false)} aria-label="Close mind map list">×</button></div>
-          <button className="new-map-card" onClick={newBoard} disabled={!canEdit}><span>＋</span><div><strong>New mind map</strong><small>Start with a central idea</small></div></button>
+          <button className="new-map-card" onClick={newBoard} disabled={!canEdit || removingMapId !== null}><span>＋</span><div><strong>New mind map</strong><small>Start with a central idea</small></div></button>
           <div className="library-label">Saved mind maps</div>
           {libraryState === "loading" && <div className="library-message">Loading your maps…</div>}
           {libraryState === "error" && <div className="library-message"><p>We couldn’t load your maps.</p><button onClick={loadLibrary}>Try again</button></div>}
           {libraryState === "idle" && maps.length === 0 && <div className="library-empty"><div>◇</div><strong>No saved maps yet</strong><p>Your changes save automatically after a short pause.</p></div>}
-          {libraryState === "idle" && maps.length > 0 && <div className="map-list">{maps.map((map) => <button key={map.id} className={map.id === mapId ? "current" : ""} onClick={() => openMap(map)}>
+          {libraryState === "idle" && maps.length > 0 && <div className="map-list">{maps.map((map) => <div key={map.id} className={`map-row${map.id === mapId ? " current" : ""}`}>
+            <button className="map-open" onClick={() => openMap(map)} disabled={removingMapId !== null}>
             <span className="map-thumbnail"><i /><i /><i /></span><span className="map-details"><strong>{map.title}</strong><small>{map.id === mapId ? "Open now" : `Updated ${new Date(map.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: new Date(map.updatedAt).getFullYear() !== new Date().getFullYear() ? "numeric" : undefined })}`}</small></span><span className="map-arrow">›</span>
-          </button>)}</div>}
+            </button>
+            <button className="map-remove" onClick={() => { void removeMap(map); }} disabled={removingMapId !== null || (map.id === mapId && saveState === "saving")} aria-label={`Remove ${map.title}`} title="Remove mind map">×</button>
+          </div>)}</div>}
         </aside>
       </div>}
 

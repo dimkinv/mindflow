@@ -14,7 +14,7 @@ function websocketUrl(request: Request) {
 async function connectCollaboration(request: Request, env: Env, url: URL) {
   const mapId = url.searchParams.get("map"); const token = url.searchParams.get("token");
   if (!mapId || !token) return Response.json({ error: "A board link is required." }, { status: 400 });
-  const map = await env.DB.prepare("SELECT view_token, edit_token FROM mind_maps WHERE id = ?").bind(mapId).first<{ view_token: string; edit_token: string }>();
+  const map = await env.DB.prepare("SELECT view_token, edit_token FROM mind_maps WHERE id = ? AND deleted_at IS NULL").bind(mapId).first<{ view_token: string; edit_token: string }>();
   if (!map || (token !== map.view_token && token !== map.edit_token)) return Response.json({ error: "This board link is invalid or no longer available." }, { status: 403 });
   const room = env.COLLABORATION.get(env.COLLABORATION.idFromName(mapId));
   const headers = new Headers(request.headers);

@@ -30,6 +30,7 @@ export const mindMaps = sqliteTable("mind_maps", {
   editToken: text("edit_token").notNull().unique(),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  deletedAt: text("deleted_at"),
 }, (table) => [
   index("mind_maps_owner_updated_idx").on(table.ownerEmail, table.updatedAt),
   index("mind_maps_owner_user_updated_idx").on(table.ownerUserId, table.updatedAt),

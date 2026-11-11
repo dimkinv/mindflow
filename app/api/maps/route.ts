@@ -41,14 +41,14 @@ export async function GET(request: Request) {
       if (!user) return Response.json({ error: "Sign in to see your mind maps." }, { status: 401 });
       const maps = await db.select({ id: mindMaps.id, title: mindMaps.title, updatedAt: mindMaps.updatedAt, editToken: mindMaps.editToken })
         .from(mindMaps)
-        .where(or(eq(mindMaps.ownerUserId, user.id), sql`lower(${mindMaps.ownerEmail}) = ${user.email}`))
+        .where(and(isNull(mindMaps.deletedAt), or(eq(mindMaps.ownerUserId, user.id), sql`lower(${mindMaps.ownerEmail}) = ${user.email}`)))
         .orderBy(desc(mindMaps.updatedAt))
         .limit(100);
       return Response.json({ maps });
     }
     if (!id || !accessToken) return Response.json({ error: "A board link is required." }, { status: 400 });
     const [row] = await db.select().from(mindMaps)
-      .where(and(eq(mindMaps.id, id), or(eq(mindMaps.viewToken, accessToken), eq(mindMaps.editToken, accessToken))))
+      .where(and(isNull(mindMaps.deletedAt), eq(mindMaps.id, id), or(eq(mindMaps.viewToken, accessToken), eq(mindMaps.editToken, accessToken))))
       .limit(1);
     if (!row) return Response.json({ error: "This board link is invalid or no longer available." }, { status: 404 });
     const permission = row.editToken === accessToken ? "edit" : "view";
@@ -77,7 +77,7 @@ export async function POST(request: Request) {
       if (!payload.token) return Response.json({ error: "Edit permission is required." }, { status: 403 });
       const updated = await db.update(mindMaps)
         .set({ title, data, updatedAt: sql`CURRENT_TIMESTAMP` })
-        .where(and(eq(mindMaps.id, payload.id), eq(mindMaps.editToken, payload.token)))
+        .where(and(isNull(mindMaps.deletedAt), eq(mindMaps.id, payload.id), eq(mindMaps.editToken, payload.token)))
         .returning({ id: mindMaps.id, viewToken: mindMaps.viewToken, editToken: mindMaps.editToken });
       if (!updated.length) return Response.json({ error: "You only have view access to this board." }, { status: 403 });
       return Response.json({ map: updated[0] });
@@ -92,5 +92,25 @@ export async function POST(request: Request) {
     return Response.json({ map: { id, viewToken, editToken } }, { status: 201 });
   } catch (error) {
     return Response.json({ error: errorMessage(error) }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const user = await getCurrentUser(request);
+    if (!user) return Response.json({ error: "Sign in to remove mind maps." }, { status: 401 });
+    const id = new URL(request.url).searchParams.get("id");
+    if (!id) return Response.json({ error: "A mind map is required." }, { status: 400 });
+    const removed = await getDb().update(mindMaps)
+      .set({ deletedAt: sql`CURRENT_TIMESTAMP` })
+      .where(and(eq(mindMaps.id, id), isNull(mindMaps.deletedAt), or(
+        eq(mindMaps.ownerUserId, user.id),
+        and(isNull(mindMaps.ownerUserId), sql`lower(${mindMaps.ownerEmail}) = ${user.email}`),
+      )))
+      .returning({ id: mindMaps.id });
+    if (!removed.length) return Response.json({ error: "This mind map is unavailable or does not belong to you." }, { status: 404 });
+    return Response.json({ id: removed[0].id });
+  } catch {
+    return Response.json({ error: "The mind map could not be removed right now." }, { status: 500 });
   }
 }

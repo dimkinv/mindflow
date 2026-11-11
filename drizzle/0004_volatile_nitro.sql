@@ -1,0 +1,1 @@
+ALTER TABLE `mind_maps` ADD `deleted_at` text;
