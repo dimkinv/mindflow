@@ -50,6 +50,31 @@ Routes** page in the Cloudflare dashboard.
 For later schema changes, run `npm run db:generate`, inspect and commit the
 generated SQL, then apply migrations before deploying.
 
+## Deploying from GitHub Actions
+
+The workflow in [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)
+deploys on pushes to `master`. You can also run it from GitHub's **Actions >
+Deploy to Cloudflare > Run workflow** page, selecting `master`.
+
+In the repository's **Settings > Secrets and variables > Actions**, add these
+repository secrets:
+
+- `CLOUDFLARE_API_TOKEN`: a Cloudflare API token with **Account > Workers
+  Scripts > Edit** and **Account > D1 > Edit** permissions for the target account.
+- `CLOUDFLARE_ACCOUNT_ID`: the Cloudflare account ID that owns the configured
+  D1 database and Worker.
+
+The D1 database in `wrangler.jsonc` must already exist in that account. Configure
+`PASSWORD_PEPPER` on the Worker once using `npx wrangler secret put PASSWORD_PEPPER`
+before serving users; it stays on Cloudflare and is not needed as a GitHub secret.
+
+The workflow installs dependencies with `npm ci`, builds and tests the app,
+applies remote D1 migrations, and uploads the built Worker and assets. Deployments
+run one at a time, and an active deployment is allowed to finish before another
+starts. Commit generated SQL migrations alongside the app changes that need them.
+Database migrations are applied before deployment and remain applied if the
+Worker upload fails.
+
 ## Authentication
 
 Authentication is owned by this application and does not depend on ChatGPT.
