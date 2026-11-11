@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Standalone mindmap editor</title>
+<style>
+  body { margin:24px; font:16px Arial,sans-serif; }
+  .maps { display:flex; gap:16px; flex-wrap:wrap; }
+  .map { width:600px; height:440px; border:1px solid #ddd; }
+  textarea { width:100%; height:100px; margin-top:12px; }
+</style>
+<h1>Mindmap editors in plain HTML</h1>
+<p>Edit either map. Each editor has its own state and shortcuts.</p>
+<label><input id="readonly" type="checkbox"> Make the first map read only</label>
+<button id="load">Load JSON into the first map</button>
+<button id="destroy">Destroy the second editor</button>
+<div class="maps"><div id="first" class="map"></div><div id="second" class="map"></div></div>
+<textarea id="data" aria-label="Mindmap JSON"></textarea>
+<script type="module">
+  import { createMindMap, createBoard } from '../dist/index.js';
+  const output = document.querySelector('#data');
+  const first = createMindMap(document.querySelector('#first'), {
+    data: createBoard('First map'),
+    onChange(data) { output.value = JSON.stringify(data, null, 2); },
+    onSaveRequest() { output.value = JSON.stringify(first.getData(), null, 2); },
+  });
+  const second = createMindMap(document.querySelector('#second'), { data: createBoard('Second map') });
+  output.value = JSON.stringify(first.getData(), null, 2);
+  document.querySelector('#readonly').onchange = event => first.setReadOnly(event.target.checked);
+  document.querySelector('#load').onclick = () => {
+    try { first.setData(JSON.parse(output.value)); }
+    catch (error) { alert(error.message); }
+  };
+  document.querySelector('#destroy').onclick = () => second.destroy();
+</script>
+</html>

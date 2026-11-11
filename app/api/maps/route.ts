@@ -1,3 +1,4 @@
+import { isBoardData, normalizeBoard, type BoardData } from "@mindflow/mindmap/model";
 import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { mindMaps } from "../../../db/schema";
@@ -15,7 +16,10 @@ function cleanTitle(value: unknown) {
 
 function validData(value: unknown) {
   if (!value || typeof value !== "object") return null;
-  const json = JSON.stringify(value);
+  let board: BoardData;
+  try { board = normalizeBoard(value as BoardData); } catch { return null; }
+  if (!isBoardData(board)) return null;
+  const json = JSON.stringify(board);
   return new TextEncoder().encode(json).length <= MAX_DATA_BYTES ? json : null;
 }
 
@@ -53,7 +57,7 @@ export async function GET(request: Request) {
       if (user) await db.update(mindMaps).set({ ownerUserId: user.id, ownerEmail: user.email }).where(and(eq(mindMaps.id, row.id), isNull(mindMaps.ownerUserId)));
     }
     return Response.json({
-      map: { id: row.id, title: row.title, data: JSON.parse(row.data), updatedAt: row.updatedAt, viewToken: permission === "edit" ? row.viewToken : undefined },
+      map: { id: row.id, title: row.title, data: normalizeBoard(JSON.parse(row.data)), updatedAt: row.updatedAt, viewToken: permission === "edit" ? row.viewToken : undefined },
       permission,
     });
   } catch (error) {

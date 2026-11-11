@@ -6,19 +6,20 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "dev": "vinext dev",
-    "build": "vinext build",
+    "dev": "npm run build:mindmap && vinext dev",
+    "build": "npm run build:mindmap && vinext build",
     "start": "vinext start",
-    "deploy": "vinext deploy",
-    "test": "npm run build && node --test tests/rendered-html.test.mjs",
+    "deploy": "npm run build:mindmap && vinext deploy",
+    "test": "npm run build && node --test tests/*.test.mjs packages/mindmap/tests/*.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
-    "db:migrate:remote": "wrangler d1 migrations apply DB --remote"
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
+    "build:mindmap": "npm run build --workspace @mindflow/mindmap"
   },
   "dependencies": {
+    "@mindflow/mindmap": "*",
     "drizzle-orm": "0.45.2",
-    "lucide-react": "^1.24.0",
     "next": "16.2.6",
     "react": "19.2.6",
     "react-dom": "19.2.6"
@@ -41,5 +42,8 @@
     "vite": "8.0.13",
     "wrangler": "4.92.0"
   },
-  "type": "module"
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ]
 }

@@ -1,5 +1,5 @@
-type CollaborationBoard = { nodes: unknown[]; edges: unknown[] };
-type RoomState = { board: CollaborationBoard; title: string };
+import { isBoardData, type BoardData } from "@mindflow/mindmap/model";
+type RoomState = { board: BoardData; title: string };
 type SocketAttachment = { canEdit: boolean };
 
 const MAX_BOARD_BYTES = 750_000;
@@ -7,7 +7,7 @@ const MAX_BOARD_BYTES = 750_000;
 function validState(value: unknown): value is RoomState {
   if (!value || typeof value !== "object") return false;
   const candidate = value as { board?: unknown; title?: unknown };
-  if (!candidate.board || typeof candidate.board !== "object" || !Array.isArray((candidate.board as CollaborationBoard).nodes) || !Array.isArray((candidate.board as CollaborationBoard).edges) || typeof candidate.title !== "string") return false;
+  if (!isBoardData(candidate.board) || typeof candidate.title !== "string") return false;
   return new TextEncoder().encode(JSON.stringify(candidate)).length <= MAX_BOARD_BYTES;
 }
 

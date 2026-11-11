@@ -1,20 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { LocateFixed } from "lucide-react";
+import { isBoardData, createBoard, type BoardData, type EdgeItem } from "@mindflow/mindmap";
+import { MindMapCanvas } from "./mind-map-canvas";
 
-type LineShape = "curve" | "straight" | "elbow";
-type LineDash = "solid" | "dashed" | "dotted";
-type NodeItem = { id: string; text: string; x: number; y: number; color: string; parentId?: string };
-type EdgeItem = { id: string; from: string; to: string; color: string; shape: LineShape; dash: LineDash; manual?: boolean };
-type BoardData = { nodes: NodeItem[]; edges: EdgeItem[] };
 type MapSummary = { id: string; title: string; updatedAt: string; editToken: string };
 type AuthUser = { id: string; name: string; email: string };
 type CollaborationMessage = { type?: "board"; board?: BoardData; title?: string };
 
-const COLORS = ["#ff5c35", "#ffad1f", "#ffd43b", "#6fd83d", "#26c6b7", "#20b8e5", "#4d7df3", "#7a4cff", "#c64ee8", "#f43fa4"];
-const NODE_W = 176;
-const NODE_H = 48;
 const AUTOSAVE_DELAY_MS = 1500;
 const MAX_FEEDBACK_LENGTH = 200;
 
@@ -39,29 +32,6 @@ const starter: BoardData = {
 };
 
 const cloneStarter = () => JSON.parse(JSON.stringify(starter)) as BoardData;
-const uid = () => crypto.randomUUID();
-
-function isBoardData(value: unknown): value is BoardData {
-  return Boolean(value && typeof value === "object" && Array.isArray((value as BoardData).nodes) && Array.isArray((value as BoardData).edges));
-}
-
-function pathFor(edge: EdgeItem, from: NodeItem, to: NodeItem) {
-  const leftToRight = to.x >= from.x;
-  const sx = from.x + (leftToRight ? NODE_W : 0);
-  const sy = from.y + NODE_H / 2;
-  const tx = to.x + (leftToRight ? 0 : NODE_W);
-  const ty = to.y + NODE_H / 2;
-  if (edge.shape === "straight") return `M ${sx} ${sy} L ${tx} ${ty}`;
-  if (edge.shape === "elbow") {
-    const mid = (sx + tx) / 2;
-    return `M ${sx} ${sy} L ${mid} ${sy} L ${mid} ${ty} L ${tx} ${ty}`;
-  }
-  const bend = Math.max(80, Math.abs(tx - sx) * 0.45);
-  const c1 = sx + (leftToRight ? bend : -bend);
-  const c2 = tx - (leftToRight ? bend : -bend);
-  return `M ${sx} ${sy} C ${c1} ${sy}, ${c2} ${ty}, ${tx} ${ty}`;
-}
-
 function AuthDialog({ user, initialMode, onClose, onSignedIn, onSignedOut }: {
   user: AuthUser | null; initialMode: "login" | "register"; onClose: () => void;
   onSignedIn: (user: AuthUser) => void; onSignedOut: () => void;
@@ -99,26 +69,16 @@ function AuthDialog({ user, initialMode, onClose, onSignedIn, onSignedOut }: {
 export function MindMapApp() {
   const [board, setBoard] = useState<BoardData>(cloneStarter);
   const [title, setTitle] = useState("Product launch plan");
-  const [selectedNode, setSelectedNode] = useState<string | null>("root");
-  const [selectedEdge, setSelectedEdge] = useState<string | null>(null);
-  const [editingNode, setEditingNode] = useState<string | null>(null);
-  const [lineOpen, setLineOpen] = useState(false);
-  const [colorOpen, setColorOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [maps, setMaps] = useState<MapSummary[]>([]);
   const [libraryState, setLibraryState] = useState<"idle" | "loading" | "error">("idle");
-  const [menu, setMenu] = useState<{ x: number; y: number; nodeId: string } | null>(null);
-  const [connectFrom, setConnectFrom] = useState<string | null>(null);
-  const [reparentingNode, setReparentingNode] = useState<string | null>(null);
   const [mapId, setMapId] = useState<string | null>(null);
   const [editToken, setEditToken] = useState<string | null>(null);
   const [viewToken, setViewToken] = useState<string | null>(null);
   const [permission, setPermission] = useState<"edit" | "view">("edit");
   const [saveState, setSaveState] = useState<"saved" | "saving" | "unsaved" | "error">("unsaved");
   const [toast, setToast] = useState("");
-  const [zoom, setZoom] = useState(0.9);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
   const [loading, setLoading] = useState(true);
   const [authReady, setAuthReady] = useState(false);
   const [hasSharedMap] = useState(() => {
@@ -129,15 +89,11 @@ export function MindMapApp() {
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
-  const [nodePlusSide, setNodePlusSide] = useState<{ id: string; side: "left" | "right" } | null>(null);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [feedbackSentiment, setFeedbackSentiment] = useState<"like" | "dislike" | null>(null);
   const [feedbackMessage, setFeedbackMessage] = useState("");
   const [feedbackError, setFeedbackError] = useState("");
   const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
-  const canvasRef = useRef<HTMLDivElement>(null);
-  const dragRef = useRef<{ id?: string; startX: number; startY: number; nodePositions?: Record<string, { x: number; y: number }>; panX?: number; panY?: number } | null>(null);
-  const pinchRef = useRef<{ distance: number; zoom: number; baseX: number; baseY: number; worldX: number; worldY: number } | null>(null);
   const collaborationSocketRef = useRef<WebSocket | null>(null);
   const receivedRemoteUpdateRef = useRef(false);
   const canEdit = permission === "edit";
@@ -177,7 +133,7 @@ export function MindMapApp() {
       .then((body) => {
         setBoard(body.map.data); setTitle(body.map.title); setMapId(body.map.id); setPermission(body.permission);
         if (body.permission === "edit") { setEditToken(token); setViewToken(body.map.viewToken); } else setViewToken(token);
-        setSelectedNode(null); setSaveState("saved");
+        setSaveState("saved");
       })
       .catch((error) => flash(error.message || "Could not open this board."))
       .finally(() => setLoading(false));
@@ -207,119 +163,9 @@ export function MindMapApp() {
 
   const markChanged = () => { if (canEdit) setSaveState("unsaved"); };
 
-  const updateNodes = (fn: (nodes: NodeItem[]) => NodeItem[]) => {
-    setBoard((current) => ({ ...current, nodes: fn(current.nodes) })); markChanged();
-  };
-
-  const addChild = useCallback((parentId: string) => {
-    if (!canEdit) return;
-    setBoard((current) => {
-      const parent = current.nodes.find((node) => node.id === parentId);
-      if (!parent) return current;
-      const siblings = current.nodes.filter((node) => node.parentId === parentId);
-      const parentOfParent = parent.parentId ? current.nodes.find((node) => node.id === parent.parentId) : undefined;
-      const leftChildren = siblings.filter((node) => node.x < parent.x).length;
-      const rightChildren = siblings.length - leftChildren;
-      const direction = parentOfParent ? (parent.x >= parentOfParent.x ? 1 : -1) : (leftChildren <= rightChildren ? -1 : 1);
-      const id = uid();
-      const targetX = parent.x + direction * 260;
-      const offsets = [0, 82, -82, 164, -164, 246, -246, 328, -328];
-      const targetY = offsets.map((offset) => parent.y + offset).find((candidate) => !current.nodes.some((node) => Math.abs(node.x - targetX) < NODE_W + 22 && Math.abs(node.y - candidate) < NODE_H + 22)) ?? parent.y + siblings.length * 82;
-      const child: NodeItem = { id, text: "New idea", x: targetX, y: targetY, color: parent.color, parentId };
-      window.setTimeout(() => { setSelectedNode(id); setEditingNode(id); }, 0);
-      return { nodes: [...current.nodes, child], edges: [...current.edges, { id: uid(), from: parentId, to: id, color: parent.color, shape: "curve", dash: "solid" }] };
-    });
-    setSaveState("unsaved"); setMenu(null);
-  }, [canEdit]);
-
-  const deleteNode = (nodeId: string) => {
-    if (!canEdit) return;
-    setBoard((current) => ({ nodes: current.nodes.filter((n) => n.id !== nodeId), edges: current.edges.filter((e) => e.from !== nodeId && e.to !== nodeId) }));
-    setSelectedNode(null); setMenu(null); markChanged();
-  };
-
-  const duplicateNode = (nodeId: string) => {
-    if (!canEdit) return;
-    setBoard((current) => {
-      const original = current.nodes.find((n) => n.id === nodeId); if (!original) return current;
-      const copy = { ...original, id: uid(), text: `${original.text} copy`, x: original.x + 34, y: original.y + 74, parentId: undefined };
-      window.setTimeout(() => setSelectedNode(copy.id), 0);
-      return { ...current, nodes: [...current.nodes, copy] };
-    }); setMenu(null); markChanged();
-  };
-
-  const startConnect = (nodeId?: string) => {
-    if (!canEdit) return;
-    setConnectFrom(nodeId ?? selectedNode); setReparentingNode(null); setMenu(null); setSelectedEdge(null);
-    flash(nodeId || selectedNode ? "Now choose a second node" : "Choose the first node to connect");
-  };
-
-  const deleteCustomConnection = () => {
-    if (!canEdit || !selectedEdge || !board.edges.find((edge) => edge.id === selectedEdge)?.manual) return;
-    setBoard((current) => ({ ...current, edges: current.edges.filter((edge) => edge.id !== selectedEdge) }));
-    setSelectedEdge(null); setLineOpen(false); markChanged();
-  };
-
-  const startChangeParent = (nodeId: string) => {
-    if (!canEdit || !board.nodes.find((node) => node.id === nodeId)?.parentId) return;
-    setReparentingNode(nodeId); setConnectFrom(null); setMenu(null); setSelectedNode(nodeId); setSelectedEdge(null);
-    flash("Choose a new parent node");
-  };
-
-  const changeParent = (nextParentId: string) => {
-    const nodeId = reparentingNode; if (!nodeId || nodeId === nextParentId) return;
-    const descendants = new Set<string>([nodeId]); let foundChild = true;
-    while (foundChild) {
-      foundChild = false;
-      board.nodes.forEach((node) => {
-        if (node.parentId && descendants.has(node.parentId) && !descendants.has(node.id)) { descendants.add(node.id); foundChild = true; }
-      });
-    }
-    if (descendants.has(nextParentId)) { flash("A node cannot become the parent of its own branch"); return; }
-    const nextParent = board.nodes.find((node) => node.id === nextParentId); if (!nextParent) return;
-    setBoard((current) => ({
-      nodes: current.nodes.map((node) => node.id === nodeId ? { ...node, parentId: nextParentId } : node),
-      edges: [
-        ...current.edges.filter((edge) => !(edge.to === nodeId && !edge.manual) && !(edge.from === nextParentId && edge.to === nodeId)),
-        { id: uid(), from: nextParentId, to: nodeId, color: nextParent.color, shape: "curve", dash: "solid" },
-      ],
-    }));
-    setReparentingNode(null); setSelectedNode(nodeId); markChanged(); flash("Parent updated");
-  };
-
-  const selectNode = (nodeId: string) => {
-    if (reparentingNode) { changeParent(nodeId); return; }
-    if (connectFrom) {
-      if (connectFrom !== nodeId && !board.edges.some((e) => (e.from === connectFrom && e.to === nodeId) || (e.to === connectFrom && e.from === nodeId))) {
-        const source = board.nodes.find((n) => n.id === connectFrom)!;
-        setBoard((current) => ({ ...current, edges: [...current.edges, { id: uid(), from: connectFrom, to: nodeId, color: source.color, shape: "curve", dash: "dashed", manual: true }] }));
-        markChanged(); flash("Nodes connected");
-      }
-      setConnectFrom(null); setSelectedNode(nodeId); return;
-    }
-    setSelectedNode(nodeId); setSelectedEdge(null); setMenu(null);
-  };
-
-  const changeColor = (color: string) => {
-    if (!canEdit || !selectedNode) return;
-    const descendants = new Set<string>([selectedNode]);
-    let added = true;
-    while (added) { added = false; board.nodes.forEach((n) => { if (n.parentId && descendants.has(n.parentId) && !descendants.has(n.id)) { descendants.add(n.id); added = true; } }); }
-    setBoard((current) => ({
-      nodes: current.nodes.map((n) => descendants.has(n.id) ? { ...n, color } : n),
-      edges: current.edges.map((e) => descendants.has(e.from) && descendants.has(e.to) ? { ...e, color } : e),
-    }));
-    setColorOpen(false); markChanged();
-  };
-
-  const changeLine = (changes: Partial<Pick<EdgeItem, "shape" | "dash">>) => {
-    if (!canEdit) return;
-    setBoard((current) => ({ ...current, edges: current.edges.map((edge) => {
-      if (selectedEdge ? edge.id === selectedEdge : selectedNode ? edge.from === selectedNode : false) return { ...edge, ...changes };
-      return edge;
-    }) }));
-    markChanged();
-  };
+  const onBoardChange = useCallback((data: BoardData) => {
+    setBoard(data); setSaveState("unsaved");
+  }, []);
 
   const loadLibrary = async () => {
     setLibraryOpen(true); setLibraryState("loading");
@@ -369,8 +215,8 @@ export function MindMapApp() {
 
   const newBoard = () => {
     if (!canEdit || (saveState === "unsaved" && !window.confirm("Start a new board and discard unsaved changes?"))) return;
-    setBoard({ nodes: [{ id: "root", text: "Central idea", x: 650, y: 360, color: "#7a4cff" }], edges: [] });
-    setTitle("Untitled mind map"); setMapId(null); setEditToken(null); setViewToken(null); setSelectedNode("root"); setSaveState("unsaved");
+    setBoard(createBoard());
+    setTitle("Untitled mind map"); setMapId(null); setEditToken(null); setViewToken(null); setSaveState("unsaved");
     setLibraryOpen(false);
     window.history.replaceState({}, "", window.location.pathname);
   };
@@ -387,112 +233,6 @@ export function MindMapApp() {
   const copyLink = async (kind: "view" | "edit") => {
     const link = shareLinks[kind]; if (!link.startsWith("http")) return;
     await navigator.clipboard.writeText(link); flash(`${kind === "view" ? "View" : "Edit"} link copied`);
-  };
-
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      const target = event.target;
-      if (target instanceof HTMLElement && target.closest("input, textarea, select, button, [contenteditable='true'], [role='dialog']")) return;
-      if (event.key === "Escape") { setMenu(null); setConnectFrom(null); setReparentingNode(null); setEditingNode(null); }
-      if (event.key === "Tab" && selectedNode && !editingNode && canEdit) { event.preventDefault(); addChild(selectedNode); }
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") { event.preventDefault(); save(); }
-      if ((event.key === "Delete" || event.key === "Backspace") && selectedNode && !editingNode && canEdit) deleteNode(selectedNode);
-    };
-    window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey);
-  });
-
-  const updateNodePlusSide = (event: React.PointerEvent<HTMLDivElement>, nodeId: string) => {
-    const bounds = event.currentTarget.getBoundingClientRect();
-    const side = event.clientX < bounds.left + bounds.width / 2 ? "left" : "right";
-    setNodePlusSide((current) => current?.id === nodeId && current.side === side ? current : { id: nodeId, side });
-  };
-
-  const onNodePointerDown = (event: React.PointerEvent, node: NodeItem) => {
-    if (!canEdit || editingNode) return;
-    event.stopPropagation();
-    const descendantIds = new Set<string>([node.id]); let foundChild = true;
-    while (foundChild) {
-      foundChild = false;
-      board.nodes.forEach((candidate) => {
-        if (candidate.parentId && descendantIds.has(candidate.parentId) && !descendantIds.has(candidate.id)) { descendantIds.add(candidate.id); foundChild = true; }
-      });
-    }
-    const nodePositions = Object.fromEntries(board.nodes.filter((candidate) => descendantIds.has(candidate.id)).map((candidate) => [candidate.id, { x: candidate.x, y: candidate.y }]));
-    dragRef.current = { id: node.id, startX: event.clientX, startY: event.clientY, nodePositions };
-    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
-  };
-
-  const onPointerMove = (event: React.PointerEvent) => {
-    const drag = dragRef.current; if (!drag) return;
-    if (drag.id) {
-      const dx = (event.clientX - drag.startX) / zoom; const dy = (event.clientY - drag.startY) / zoom;
-      updateNodes((nodes) => nodes.map((n) => {
-        const position = drag.nodePositions?.[n.id];
-        return position ? { ...n, x: position.x + dx, y: position.y + dy } : n;
-      }));
-    } else {
-      setPan({ x: (drag.panX ?? 0) + event.clientX - drag.startX, y: (drag.panY ?? 0) + event.clientY - drag.startY });
-    }
-  };
-
-  const onCanvasPointerDown = (event: React.PointerEvent) => {
-    if (event.button !== 0 || (event.target as HTMLElement).closest("button,input,.mind-node")) return;
-    setSelectedNode(null); setSelectedEdge(null); setMenu(null); setColorOpen(false); setLineOpen(false);
-    dragRef.current = { startX: event.clientX, startY: event.clientY, panX: pan.x, panY: pan.y };
-    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
-  };
-
-  const zoomAtPointer = (nextZoom: number, clientX: number, clientY: number) => {
-    const canvas = canvasRef.current; const world = canvas?.querySelector<HTMLElement>(".canvas-world");
-    if (!canvas || !world) { setZoom(nextZoom); return; }
-    const worldBounds = world.getBoundingClientRect();
-    const baseX = worldBounds.left - pan.x; const baseY = worldBounds.top - pan.y;
-    // Measure from the world's current on-screen position. Omitting pan here
-    // makes each zoom behave as if the canvas had never been moved.
-    const worldX = (clientX - worldBounds.left) / zoom; const worldY = (clientY - worldBounds.top) / zoom;
-    setPan({ x: clientX - baseX - worldX * nextZoom, y: clientY - baseY - worldY * nextZoom });
-    setZoom(nextZoom);
-  };
-
-  const onCanvasWheel = (event: React.WheelEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    const nextZoom = Math.min(1.5, Math.max(.45, zoom * Math.exp(-event.deltaY * .0015)));
-    if (nextZoom !== zoom) zoomAtPointer(nextZoom, event.clientX, event.clientY);
-  };
-
-  const zoomAtCanvasCenter = (change: number) => {
-    const canvasBounds = canvasRef.current?.getBoundingClientRect();
-    const nextZoom = Math.min(1.5, Math.max(.45, zoom + change));
-    if (!canvasBounds || nextZoom === zoom) return;
-    zoomAtPointer(nextZoom, canvasBounds.left + canvasBounds.width / 2, canvasBounds.top + canvasBounds.height / 2);
-  };
-
-  const onTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
-    if (event.touches.length !== 2) return;
-    const [first, second] = Array.from(event.touches); const canvas = canvasRef.current; const world = canvas?.querySelector<HTMLElement>(".canvas-world");
-    if (!world) return;
-    const centerX = (first.clientX + second.clientX) / 2; const centerY = (first.clientY + second.clientY) / 2; const worldBounds = world.getBoundingClientRect();
-    const baseX = worldBounds.left - pan.x; const baseY = worldBounds.top - pan.y;
-    pinchRef.current = { distance: Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY), zoom, baseX, baseY, worldX: (centerX - worldBounds.left) / zoom, worldY: (centerY - worldBounds.top) / zoom };
-    dragRef.current = null;
-  };
-
-  const onTouchMove = (event: React.TouchEvent<HTMLDivElement>) => {
-    const pinch = pinchRef.current; if (!pinch || event.touches.length !== 2) return;
-    event.preventDefault();
-    const [first, second] = Array.from(event.touches); const centerX = (first.clientX + second.clientX) / 2; const centerY = (first.clientY + second.clientY) / 2;
-    const nextZoom = Math.min(1.5, Math.max(.45, pinch.zoom * Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY) / pinch.distance));
-    setPan({ x: centerX - pinch.baseX - pinch.worldX * nextZoom, y: centerY - pinch.baseY - pinch.worldY * nextZoom });
-    setZoom(nextZoom);
-  };
-
-  const centerOnRoot = () => {
-    const root = board.nodes.find((node) => !node.parentId) ?? board.nodes[0];
-    const canvas = canvasRef.current; const world = canvas?.querySelector<HTMLElement>(".canvas-world");
-    if (!root || !canvas || !world) return;
-    const canvasBounds = canvas.getBoundingClientRect(); const worldBounds = world.getBoundingClientRect();
-    const baseX = worldBounds.left - pan.x; const baseY = worldBounds.top - pan.y;
-    setPan({ x: canvasBounds.left + canvasBounds.width / 2 - baseX - (root.x + NODE_W / 2) * zoom, y: canvasBounds.top + canvasBounds.height / 2 - baseY - (root.y + NODE_H / 2) * zoom });
   };
 
   if (loading || !authReady) return <main className="loading"><div className="brand-mark">M</div><p>Opening your board…</p></main>;
@@ -532,62 +272,9 @@ export function MindMapApp() {
         </> : <div className="top-actions"><button className="login-button" onClick={() => { setAuthMode("login"); setAuthOpen(true); }}>Log in</button></div>}
       </header>
 
-      {canEdit && <aside className="left-tools" aria-label="Canvas tools">
-        <button className="tool active" aria-label="Select tool" title="Select">↖</button>
-        <button className={`tool ${connectFrom !== null ? "active" : ""}`} onClick={() => startConnect()} aria-label="Connect two nodes" title="Connect nodes">⌁</button>
-        <button className="tool" onClick={() => selectedNode && addChild(selectedNode)} disabled={!selectedNode} aria-label="Add child node" title="Add child (Tab)">＋</button>
-        <button className="tool center-root-button" onClick={centerOnRoot} aria-label="Center on root note" title="Center on root note"><LocateFixed size={19} strokeWidth={2.25} aria-hidden="true" /></button>
-      </aside>}
-
-      {canEdit && (selectedNode || selectedEdge) && <div className="format-bar">
-        <button className="format-button" onClick={() => { setLineOpen(!lineOpen); setColorOpen(false); }} aria-expanded={lineOpen}><span className="line-sample" /> Line</button>
-        <button className="format-button" onClick={() => { setColorOpen(!colorOpen); setLineOpen(false); }} disabled={!selectedNode} aria-expanded={colorOpen}><span className="color-dot" style={{ background: board.nodes.find((n) => n.id === selectedNode)?.color }} /> Branch</button>
-        <button className="format-button" onClick={() => selectedNode && setEditingNode(selectedNode)} disabled={!selectedNode}>T Text</button>
-        {selectedEdge && board.edges.find((edge) => edge.id === selectedEdge)?.manual && <button className="format-button danger" onClick={deleteCustomConnection}>Delete connection</button>}
-        {lineOpen && <div className="popover line-popover">
-          <div className="popover-label">Connector</div>
-          <div className="segmented">
-            <button onClick={() => changeLine({ shape: "curve" })}>Curved</button><button onClick={() => changeLine({ shape: "straight" })}>Straight</button><button onClick={() => changeLine({ shape: "elbow" })}>Elbow</button>
-          </div>
-          <div className="popover-label">Stroke</div>
-          <div className="segmented">
-            <button onClick={() => changeLine({ dash: "solid" })}>Solid</button><button onClick={() => changeLine({ dash: "dashed" })}>Dashed</button><button onClick={() => changeLine({ dash: "dotted" })}>Dotted</button>
-          </div>
-        </div>}
-        {colorOpen && <div className="popover color-popover">
-          <div className="popover-label">Branch color</div>
-          <div className="swatches">{COLORS.map((color) => <button key={color} aria-label={`Set branch color ${color}`} style={{ background: color }} onClick={() => changeColor(color)} />)}</div>
-          <p>Applies to this node and its branch</p>
-        </div>}
-      </div>}
-
-      <section ref={canvasRef} className={`canvas ${connectFrom || reparentingNode ? "connecting" : ""}`} onPointerDown={onCanvasPointerDown} onPointerMove={onPointerMove} onPointerUp={() => { dragRef.current = null; }} onPointerCancel={() => { dragRef.current = null; }} onWheel={onCanvasWheel} onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={() => { pinchRef.current = null; }} onTouchCancel={() => { pinchRef.current = null; }} onContextMenu={(e) => e.preventDefault()}>
-        <div className="canvas-world" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}>
-          <svg className="edges" width="1600" height="900" aria-label="Mind map connections">
-            {board.edges.map((edge) => {
-              const from = board.nodes.find((n) => n.id === edge.from); const to = board.nodes.find((n) => n.id === edge.to); if (!from || !to) return null;
-              const path = pathFor(edge, from, to); const dash = edge.dash === "dashed" ? "10 7" : edge.dash === "dotted" ? "2 8" : undefined;
-              return <g key={edge.id} className={selectedEdge === edge.id ? "edge-selected" : ""}>
-                <path d={path} fill="none" stroke={edge.color} strokeWidth={selectedEdge === edge.id ? 4 : 2.5} strokeDasharray={dash} strokeLinecap="round" strokeLinejoin="round" />
-                <path className="edge-hit" d={path} fill="none" stroke="transparent" strokeWidth="18" onPointerDown={(e) => { e.stopPropagation(); setSelectedEdge(edge.id); setSelectedNode(null); setLineOpen(true); }} />
-              </g>;
-            })}
-          </svg>
-          {board.nodes.map((node) => {
-            const selected = selectedNode === node.id; const editing = editingNode === node.id;
-            return <div key={node.id} className={`mind-node ${selected ? "selected" : ""} ${connectFrom === node.id || reparentingNode === node.id ? "connect-source" : ""}`} data-testid={`node-${node.id}`} data-plus-side={nodePlusSide?.id === node.id ? nodePlusSide.side : "right"} style={{ left: node.x, top: node.y, "--node-color": node.color } as React.CSSProperties}
-              onPointerDown={(e) => onNodePointerDown(e, node)} onClick={(e) => { e.stopPropagation(); selectNode(node.id); }} onDoubleClick={(e) => { e.stopPropagation(); if (canEdit) setEditingNode(node.id); }}
-              onPointerMove={(e) => updateNodePlusSide(e, node.id)}
-              onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); if (canEdit) { setSelectedNode(node.id); setMenu({ x: e.clientX, y: e.clientY, nodeId: node.id }); } }}>
-              {editing ? <input autoFocus value={node.text} aria-label="Node text" onFocus={(event) => { if (node.text === "New idea") event.currentTarget.select(); }} onChange={(e) => updateNodes((nodes) => nodes.map((n) => n.id === node.id ? { ...n, text: e.target.value } : n))} onBlur={() => setEditingNode(null)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === "Escape") { e.preventDefault(); setEditingNode(null); } }} /> : <span>{node.text}</span>}
-              {canEdit && <button className="node-plus" aria-label={`Add child to ${node.text}`} title="Add child" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); addChild(node.id); }}>＋</button>}
-            </div>;
-          })}
-        </div>
-        <div className="canvas-hint">{reparentingNode ? "Choose a new parent node · Esc to cancel" : connectFrom ? "Choose a node to finish the connection · Esc to cancel" : canEdit ? "Select a node and press Tab to add a branch" : "You’re viewing this board"}</div>
-      </section>
-
-      <div className="zoom-controls"><button onClick={() => zoomAtCanvasCenter(-.1)} aria-label="Zoom out">−</button><span>{Math.round(zoom * 100)}%</span><button onClick={() => zoomAtCanvasCenter(.1)} aria-label="Zoom in">＋</button><button onClick={() => { setPan({ x: 0, y: 0 }); setZoom(.9); }} aria-label="Reset view">⌂</button></div>
+      <div className="mindmap-container">
+        <MindMapCanvas data={board} readOnly={!canEdit} onChange={onBoardChange} onSaveRequest={() => { void save(); }} />
+      </div>
 
       <div className="feedback-control">
         {feedbackOpen && <form className="feedback-popover" onSubmit={submitFeedback} role="dialog" aria-labelledby="feedback-title">
@@ -604,16 +291,6 @@ export function MindMapApp() {
         </form>}
         <button className="feedback-button" onClick={() => { setFeedbackOpen((open) => !open); setFeedbackError(""); }} aria-expanded={feedbackOpen}>Feedback</button>
       </div>
-
-      {menu && <div className="context-menu" style={{ left: menu.x, top: menu.y }} role="menu" onPointerDown={(e) => e.stopPropagation()}>
-        <button role="menuitem" onClick={() => addChild(menu.nodeId)}><span>＋</span>Add child <kbd>Tab</kbd></button>
-        <button role="menuitem" onClick={() => duplicateNode(menu.nodeId)}><span>▣</span>Duplicate <kbd>Ctrl D</kbd></button>
-        <button role="menuitem" onClick={() => startConnect(menu.nodeId)}><span>⌁</span>Connect to…</button>
-        {board.nodes.find((node) => node.id === menu.nodeId)?.parentId && <button role="menuitem" onClick={() => startChangeParent(menu.nodeId)}><span>↗</span>Change parent…</button>}
-        <div className="menu-divider" />
-        <button role="menuitem" onClick={() => { setSelectedNode(menu.nodeId); setMenu(null); setColorOpen(true); }}><span>●</span>Branch color</button>
-        <button className="danger" role="menuitem" onClick={() => deleteNode(menu.nodeId)}><span>⌫</span>Delete <kbd>Del</kbd></button>
-      </div>}
 
       {libraryOpen && <div className="library-backdrop" onMouseDown={() => setLibraryOpen(false)}>
         <aside className="library-panel" aria-label="My mind maps" onMouseDown={(e) => e.stopPropagation()}>

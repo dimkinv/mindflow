@@ -86,3 +86,23 @@ provision the room automatically.
 - `npm run db:generate`: generate a Drizzle migration
 - `npm run db:migrate:local`: apply migrations to local D1
 - `npm run db:migrate:remote`: apply migrations to remote D1
+
+## Framework-independent mindmap package
+
+The mindmap model, SVG/HTML rendering, editing tools, and navigation live in
+[`@mindflow/mindmap`](packages/mindmap/README.md), an npm workspace package with
+no runtime framework dependencies. It mounts into any DOM element using
+`createMindMap(container, options)` and isolates its styles in a shadow DOM.
+A [plain HTML example](packages/mindmap/examples/index.html) demonstrates use
+without React, Next.js, or a bundler.
+
+The application owns authentication, persistence, sharing, feedback, and the
+collaboration connection. `app/mind-map-canvas.tsx` is a React lifecycle adapter;
+it forwards document changes and read-only state to the package. API and
+collaboration validation share the package's model schema.
+
+`npm run dev` and `npm run build` compile the package before starting the app.
+After editing package sources during development, run `npm run build:mindmap`
+to refresh the compiled modules (or `npx tsc -p packages/mindmap/tsconfig.json --watch`
+in a second terminal). To create a distributable archive, run
+`npm pack --workspace @mindflow/mindmap`.

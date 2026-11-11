@@ -1,0 +1,32 @@
+{
+  "name": "@mindflow/mindmap",
+  "version": "0.1.0",
+  "description": "Framework-independent mindmap model and DOM editor",
+  "type": "module",
+  "files": [
+    "dist",
+    "README.md",
+    "examples"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./model": {
+      "types": "./dist/model.d.ts",
+      "import": "./dist/model.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test tests/*.test.mjs",
+    "prepack": "npm run build"
+  },
+  "devDependencies": {
+    "jsdom": "^26.1.0",
+    "typescript": "5.9.3"
+  }
+}
