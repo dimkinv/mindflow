@@ -102,3 +102,12 @@ test("removed maps reject new collaboration connections", async (t) => {
   assert.equal((await connect("legacy", "legacy-edit")).status, 200);
   assert.equal(connections, 1);
 });
+
+test("the workspace lists all owned maps even when there are more than one hundred", async (t) => {
+  const { sqlite, route, request, data } = await fixture();
+  t.after(() => sqlite.close());
+  const insert = sqlite.prepare("INSERT INTO mind_maps (id, owner_user_id, title, data, view_token, edit_token) VALUES (?, ?, ?, ?, ?, ?)");
+  for (let index = 0; index < 105; index++) insert.run(`extra-${index}`, "owner", `Map ${index}`, data, `view-${index}`, `edit-${index}`);
+  const { maps } = await (await route.GET(request())).json();
+  assert.equal(maps.length, 107);
+});

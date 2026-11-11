@@ -42,8 +42,7 @@ export async function GET(request: Request) {
       const maps = await db.select({ id: mindMaps.id, title: mindMaps.title, updatedAt: mindMaps.updatedAt, editToken: mindMaps.editToken })
         .from(mindMaps)
         .where(and(isNull(mindMaps.deletedAt), or(eq(mindMaps.ownerUserId, user.id), sql`lower(${mindMaps.ownerEmail}) = ${user.email}`)))
-        .orderBy(desc(mindMaps.updatedAt))
-        .limit(100);
+        .orderBy(desc(mindMaps.updatedAt));
       return Response.json({ maps });
     }
     if (!id || !accessToken) return Response.json({ error: "A board link is required." }, { status: 400 });

@@ -11,7 +11,7 @@ test("ships the complete Mindflow editor surface", async () => {
   ]);
   assert.match(page, /<MindMapApp \/>/);
   assert.match(layout, /Mindflow/);
-  assert.match(client, /Product launch plan/);
+  assert.doesNotMatch(client, /Product launch plan|cloneStarter/);
   assert.match(client, /Share/);
   assert.match(client, /My mind maps/);
   assert.match(client, /loadLibrary/);

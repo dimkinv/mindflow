@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { isBoardData, createBoard, type BoardData, type EdgeItem } from "@mindflow/mindmap";
+import { isBoardData, createBoard, type BoardData } from "@mindflow/mindmap";
 import { MindMapCanvas } from "./mind-map-canvas";
 
 type MapSummary = { id: string; title: string; updatedAt: string; editToken: string };
@@ -11,27 +11,6 @@ type CollaborationMessage = { type?: "board"; board?: BoardData; title?: string 
 const AUTOSAVE_DELAY_MS = 1500;
 const MAX_FEEDBACK_LENGTH = 200;
 
-const starter: BoardData = {
-  nodes: [
-    { id: "root", text: "Product launch", x: 650, y: 360, color: "#7a4cff" },
-    { id: "research", text: "Research", x: 355, y: 175, color: "#ff5c35", parentId: "root" },
-    { id: "audience", text: "Target audience", x: 85, y: 105, color: "#ff5c35", parentId: "research" },
-    { id: "insights", text: "Customer insights", x: 85, y: 215, color: "#ff5c35", parentId: "research" },
-    { id: "strategy", text: "Strategy", x: 950, y: 170, color: "#20b8e5", parentId: "root" },
-    { id: "position", text: "Positioning", x: 1210, y: 105, color: "#20b8e5", parentId: "strategy" },
-    { id: "channels", text: "Channels", x: 1210, y: 215, color: "#20b8e5", parentId: "strategy" },
-    { id: "delivery", text: "Delivery", x: 950, y: 555, color: "#f43fa4", parentId: "root" },
-    { id: "timeline", text: "Timeline", x: 1210, y: 500, color: "#f43fa4", parentId: "delivery" },
-    { id: "owners", text: "Owners", x: 1210, y: 610, color: "#f43fa4", parentId: "delivery" },
-  ],
-  edges: [
-    ["root", "research", "#ff5c35"], ["research", "audience", "#ff5c35"], ["research", "insights", "#ff5c35"],
-    ["root", "strategy", "#20b8e5"], ["strategy", "position", "#20b8e5"], ["strategy", "channels", "#20b8e5"],
-    ["root", "delivery", "#f43fa4"], ["delivery", "timeline", "#f43fa4"], ["delivery", "owners", "#f43fa4"],
-  ].map(([from, to, color], index) => ({ id: `edge-${index}`, from, to, color, shape: "curve", dash: "solid" } as EdgeItem)),
-};
-
-const cloneStarter = () => JSON.parse(JSON.stringify(starter)) as BoardData;
 function AuthDialog({ user, initialMode, onClose, onSignedIn, onSignedOut }: {
   user: AuthUser | null; initialMode: "login" | "register"; onClose: () => void;
   onSignedIn: (user: AuthUser) => void; onSignedOut: () => void;
@@ -67,10 +46,10 @@ function AuthDialog({ user, initialMode, onClose, onSignedIn, onSignedOut }: {
 }
 
 export function MindMapApp() {
-  const [board, setBoard] = useState<BoardData>(cloneStarter);
-  const [title, setTitle] = useState("Product launch plan");
+  const [board, setBoard] = useState<BoardData>(() => createBoard());
+  const [title, setTitle] = useState("Untitled mind map");
   const [shareOpen, setShareOpen] = useState(false);
-  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [editorOpen, setEditorOpen] = useState(false);
   const [maps, setMaps] = useState<MapSummary[]>([]);
   const [removingMapId, setRemovingMapId] = useState<string | null>(null);
   const removedMapIdsRef = useRef(new Set<string>());
@@ -83,11 +62,6 @@ export function MindMapApp() {
   const [toast, setToast] = useState("");
   const [loading, setLoading] = useState(true);
   const [authReady, setAuthReady] = useState(false);
-  const [hasSharedMap] = useState(() => {
-    if (typeof window === "undefined") return false;
-    const params = new URLSearchParams(window.location.search);
-    return Boolean(params.get("map") && params.get("token"));
-  });
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
@@ -135,7 +109,7 @@ export function MindMapApp() {
       .then((body) => {
         setBoard(body.map.data); setTitle(body.map.title); setMapId(body.map.id); setPermission(body.permission);
         if (body.permission === "edit") { setEditToken(token); setViewToken(body.map.viewToken); } else setViewToken(token);
-        setSaveState("saved");
+        setSaveState("saved"); setEditorOpen(true);
       })
       .catch((error) => flash(error.message || "Could not open this board."))
       .finally(() => setLoading(false));
@@ -169,22 +143,41 @@ export function MindMapApp() {
     setBoard(data); setSaveState("unsaved");
   }, []);
 
-  const loadLibrary = async () => {
-    setLibraryOpen(true); setLibraryState("loading");
+  const loadLibrary = useCallback(async () => {
+    setLibraryState("loading");
     try {
       const res = await fetch("/api/maps");
       const body = await res.json();
-      if (res.status === 401) { setLibraryOpen(false); setLibraryState("idle"); setAuthMode("login"); setAuthOpen(true); flash("Sign in to see your saved maps"); return; }
+      if (res.status === 401) { setLibraryState("idle"); setAuthMode("login"); setAuthOpen(true); flash("Sign in to see your saved maps"); return; }
       if (!res.ok) throw new Error(body.error);
       setMaps(body.maps.filter((map: MapSummary) => !removedMapIdsRef.current.has(map.id))); setLibraryState("idle");
     } catch (error) {
       setLibraryState("error"); flash(error instanceof Error ? error.message : "Could not load your mind maps.");
     }
-  };
+  }, [flash]);
 
-  const openMap = (map: MapSummary) => {
+  useEffect(() => {
+    if (!authUser || editorOpen || loading) return;
+    let active = true;
+    queueMicrotask(() => { if (active) void loadLibrary(); });
+    return () => { active = false; };
+  }, [authUser, editorOpen, loadLibrary, loading]);
+
+  const openMap = async (map: MapSummary) => {
+    if (saveState === "saving" || removingMapId) return;
     if (saveState === "unsaved" && !window.confirm("Open this mind map and discard unsaved changes?")) return;
-    window.location.assign(`${window.location.pathname}?map=${encodeURIComponent(map.id)}&token=${encodeURIComponent(map.editToken)}`);
+    setLoading(true);
+    try {
+      const response = await fetch(`/api/maps?id=${encodeURIComponent(map.id)}&token=${encodeURIComponent(map.editToken)}`);
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error);
+      setBoard(body.map.data); setTitle(body.map.title); setMapId(body.map.id);
+      setEditToken(map.editToken); setViewToken(body.map.viewToken); setPermission(body.permission);
+      setSaveState("saved"); setEditorOpen(true);
+      window.history.replaceState({}, "", `?map=${encodeURIComponent(map.id)}&token=${encodeURIComponent(map.editToken)}`);
+    } catch (error) {
+      flash(error instanceof Error ? error.message : "Could not open this mind map.");
+    } finally { setLoading(false); }
   };
 
   const removeMap = async (map: MapSummary) => {
@@ -200,7 +193,7 @@ export function MindMapApp() {
         collaborationSocketRef.current?.close();
         setBoard(createBoard()); setTitle("Untitled mind map");
         setMapId(null); setEditToken(null); setViewToken(null); setPermission("edit");
-        setSaveState("saved"); setShareOpen(false);
+        setSaveState("idle"); setShareOpen(false); setEditorOpen(false);
         window.history.replaceState({}, "", window.location.pathname);
       }
       flash("Mind map removed");
@@ -215,7 +208,7 @@ export function MindMapApp() {
 
   const save = useCallback(async (announce = true) => {
     if (!canEdit || saveState === "saving") return;
-    if (loading || !authReady) return;
+    if (!editorOpen || loading || !authReady) return;
     if (mapId && removedMapIdsRef.current.has(mapId)) return;
     setSaveState("saving");
     try {
@@ -232,14 +225,14 @@ export function MindMapApp() {
       if (mapId && removedMapIdsRef.current.has(mapId)) return;
       setSaveState("error"); flash(error instanceof Error ? error.message : "Could not save this board.");
     }
-  }, [authReady, board, canEdit, editToken, flash, loading, mapId, saveState, title]);
+  }, [authReady, board, canEdit, editorOpen, editToken, flash, loading, mapId, saveState, title]);
 
   useEffect(() => {
     if (!canEdit || saveState !== "unsaved") return;
-    if (loading || !authReady || (!authUser && !mapId)) return;
+    if (!editorOpen || loading || !authReady || (!authUser && !mapId)) return;
     const timeout = window.setTimeout(() => { void save(false); }, AUTOSAVE_DELAY_MS);
     return () => window.clearTimeout(timeout);
-  }, [authReady, authUser, canEdit, loading, mapId, save, saveState]);
+  }, [authReady, authUser, canEdit, editorOpen, loading, mapId, save, saveState]);
 
   useEffect(() => {
     const socket = collaborationSocketRef.current;
@@ -249,11 +242,19 @@ export function MindMapApp() {
   }, [board, canEdit, mapId, title]);
 
   const newBoard = () => {
-    if (removingMapId) return;
-    if (!canEdit || (saveState === "unsaved" && !window.confirm("Start a new board and discard unsaved changes?"))) return;
+    if (removingMapId || saveState === "saving") return;
+    if ((editorOpen && !canEdit) || (saveState === "unsaved" && !window.confirm("Start a new board and discard unsaved changes?"))) return;
     setBoard(createBoard());
-    setTitle("Untitled mind map"); setMapId(null); setEditToken(null); setViewToken(null); setSaveState("unsaved");
-    setLibraryOpen(false);
+    setTitle("Untitled mind map"); setMapId(null); setEditToken(null); setViewToken(null); setPermission("edit"); setSaveState("unsaved");
+    setEditorOpen(true);
+    window.history.replaceState({}, "", window.location.pathname);
+  };
+
+  const showWorkspace = () => {
+    if (saveState === "saving" || removingMapId) return;
+    if (saveState === "unsaved" && !window.confirm("Return to your mind maps and discard unsaved changes?")) return;
+    setEditorOpen(false); setShareOpen(false); setSaveState("idle");
+    setMapId(null); setEditToken(null); setViewToken(null); setPermission("edit");
     window.history.replaceState({}, "", window.location.pathname);
   };
 
@@ -271,9 +272,9 @@ export function MindMapApp() {
     await navigator.clipboard.writeText(link); flash(`${kind === "view" ? "View" : "Edit"} link copied`);
   };
 
-  if (loading || !authReady) return <main className="loading"><div className="brand-mark">M</div><p>Opening your board…</p></main>;
+  if (loading || !authReady) return <main className="loading"><div className="brand-mark">M</div><p>Loading Mindflow…</p></main>;
 
-  if (!authUser && !hasSharedMap) return <main className="app-shell welcome-shell">
+  if (!authUser && !editorOpen) return <main className="app-shell welcome-shell">
     <header className="topbar welcome-topbar">
       <div className="brand-mark" aria-label="Mindflow">M</div>
       <div className="top-actions"><button className="login-button" onClick={() => { setAuthMode("login"); setAuthOpen(true); }}>Log in</button></div>
@@ -288,12 +289,12 @@ export function MindMapApp() {
   </main>;
 
   return (
-    <main className="app-shell" data-permission={permission}>
+    <main className={`app-shell${editorOpen ? "" : " workspace-shell"}`} data-permission={permission}>
       <header className="topbar">
         <div className="brand-mark" aria-label="Mindflow">M</div>
-        {authUser ? <>
-          <button className="library-button" onClick={loadLibrary} aria-label="My mind maps"><span>☷</span><span>My maps</span></button>
-          <button className="icon-button" onClick={newBoard} disabled={!canEdit} aria-label="New mind map" title="New mind map">＋</button>
+        {authUser && editorOpen ? <>
+          <button className="library-button" onClick={showWorkspace} disabled={saveState === "saving"} aria-label="My mind maps"><span>☷</span><span>My maps</span></button>
+          <button className="icon-button" onClick={newBoard} disabled={!canEdit || saveState === "saving"} aria-label="New mind map" title="New mind map">＋</button>
           <div className="title-wrap">
             <input aria-label="Board title" value={title} disabled={!canEdit} onChange={(e) => { setTitle(e.target.value); markChanged(); }} />
             <span className={`save-status ${saveState}`}>{saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved" : saveState === "error" ? "Save failed" : saveState === "idle" ? "Not saved" : "Unsaved"}</span>
@@ -305,12 +306,31 @@ export function MindMapApp() {
               {authUser.name.slice(0, 1).toUpperCase()}
             </button>
           </div>
-        </> : <div className="top-actions"><button className="login-button" onClick={() => { setAuthMode("login"); setAuthOpen(true); }}>Log in</button></div>}
+        </> : authUser ? <><span className="workspace-brand">Mindflow</span><div className="top-actions"><button className="account-button" onClick={() => { setAuthMode("login"); setAuthOpen(true); }} aria-label={`Account for ${authUser.name}`}>{authUser.name.slice(0, 1).toUpperCase()}</button></div></> : <div className="top-actions"><button className="login-button" onClick={() => { setAuthMode("login"); setAuthOpen(true); }}>Log in</button></div>}
       </header>
 
-      <div className="mindmap-container">
+      {editorOpen ? <div className="mindmap-container">
         <MindMapCanvas data={board} readOnly={!canEdit} onChange={onBoardChange} onSaveRequest={() => { void save(); }} />
-      </div>
+      </div> : <section className="workspace-screen" aria-labelledby="workspace-title">
+        <div className="workspace-content">
+          <div className="workspace-heading">
+            <div><span className="workspace-eyebrow">Your workspace</span><h1 id="workspace-title">My mind maps</h1><p>Pick up where you left off, or start with a new idea.</p></div>
+            <button className="share-button workspace-new" onClick={newBoard} disabled={removingMapId !== null} aria-label="New mind map"><span aria-hidden="true">＋</span> New mind map</button>
+          </div>
+          <div className="workspace-list-heading"><h2>Saved mind maps</h2>{libraryState === "idle" && <span>{maps.length} {maps.length === 1 ? "map" : "maps"}</span>}</div>
+          {libraryState === "loading" && <div className="library-message" role="status">Loading your maps…</div>}
+          {libraryState === "error" && <div className="library-message" role="alert"><p>We couldn’t load your maps.</p><button onClick={() => { void loadLibrary(); }}>Try again</button></div>}
+          {libraryState === "idle" && maps.length === 0 && <div className="library-empty"><div>◇</div><strong>Your next idea starts here</strong><p>Create your first mind map to get started.</p></div>}
+          {libraryState === "idle" && maps.length > 0 && <div className="map-list workspace-maps">{maps.map((map) => <div key={map.id} className="map-row">
+            <button className="map-open" onClick={() => { void openMap(map); }} disabled={removingMapId !== null} aria-label={`Open ${map.title}`}>
+              <span className="map-thumbnail" aria-hidden="true"><i /><i /><i /></span>
+              <span className="map-details"><strong>{map.title}</strong><small>Updated {new Date(map.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: new Date(map.updatedAt).getFullYear() !== new Date().getFullYear() ? "numeric" : undefined })}</small></span>
+              <span className="map-arrow" aria-hidden="true">›</span>
+            </button>
+            <button className="map-remove" onClick={() => { void removeMap(map); }} disabled={removingMapId !== null} aria-label={`Remove ${map.title}`} title="Remove mind map">×</button>
+          </div>)}</div>}
+        </div>
+      </section>}
 
       <div className="feedback-control">
         {feedbackOpen && <form className="feedback-popover" onSubmit={submitFeedback} role="dialog" aria-labelledby="feedback-title">
@@ -328,22 +348,6 @@ export function MindMapApp() {
         <button className="feedback-button" onClick={() => { setFeedbackOpen((open) => !open); setFeedbackError(""); }} aria-expanded={feedbackOpen}>Feedback</button>
       </div>
 
-      {libraryOpen && <div className="library-backdrop" onMouseDown={() => setLibraryOpen(false)}>
-        <aside className="library-panel" aria-label="My mind maps" onMouseDown={(e) => e.stopPropagation()}>
-          <div className="library-header"><div><span>Your workspace</span><h2>My mind maps</h2></div><button onClick={() => setLibraryOpen(false)} aria-label="Close mind map list">×</button></div>
-          <button className="new-map-card" onClick={newBoard} disabled={!canEdit || removingMapId !== null}><span>＋</span><div><strong>New mind map</strong><small>Start with a central idea</small></div></button>
-          <div className="library-label">Saved mind maps</div>
-          {libraryState === "loading" && <div className="library-message">Loading your maps…</div>}
-          {libraryState === "error" && <div className="library-message"><p>We couldn’t load your maps.</p><button onClick={loadLibrary}>Try again</button></div>}
-          {libraryState === "idle" && maps.length === 0 && <div className="library-empty"><div>◇</div><strong>No saved maps yet</strong><p>Your changes save automatically after a short pause.</p></div>}
-          {libraryState === "idle" && maps.length > 0 && <div className="map-list">{maps.map((map) => <div key={map.id} className={`map-row${map.id === mapId ? " current" : ""}`}>
-            <button className="map-open" onClick={() => openMap(map)} disabled={removingMapId !== null}>
-            <span className="map-thumbnail"><i /><i /><i /></span><span className="map-details"><strong>{map.title}</strong><small>{map.id === mapId ? "Open now" : `Updated ${new Date(map.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: new Date(map.updatedAt).getFullYear() !== new Date().getFullYear() ? "numeric" : undefined })}`}</small></span><span className="map-arrow">›</span>
-            </button>
-            <button className="map-remove" onClick={() => { void removeMap(map); }} disabled={removingMapId !== null || (map.id === mapId && saveState === "saving")} aria-label={`Remove ${map.title}`} title="Remove mind map">×</button>
-          </div>)}</div>}
-        </aside>
-      </div>}
 
       {shareOpen && <div className="modal-backdrop" onMouseDown={() => setShareOpen(false)}>
         <div className="share-modal" role="dialog" aria-modal="true" aria-labelledby="share-title" onMouseDown={(e) => e.stopPropagation()}>
@@ -358,7 +362,7 @@ export function MindMapApp() {
 
       {authOpen && <AuthDialog user={authUser} initialMode={authMode} onClose={() => setAuthOpen(false)}
         onSignedIn={(user) => { setAuthUser(user); setAuthOpen(false); flash(`Welcome, ${user.name}`); }}
-        onSignedOut={() => { setAuthUser(null); setAuthOpen(false); setMaps([]); setLibraryOpen(false); flash("Signed out"); }} />}
+        onSignedOut={() => { setAuthUser(null); setAuthOpen(false); setMaps([]); setEditorOpen(false); setMapId(null); setEditToken(null); setViewToken(null); setSaveState("idle"); window.history.replaceState({}, "", window.location.pathname); flash("Signed out"); }} />}
 
       {toast && <div className="toast" role="status">✓ {toast}</div>}
     </main>

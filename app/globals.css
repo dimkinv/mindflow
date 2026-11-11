@@ -34,6 +34,39 @@ button { color: inherit; }
 .welcome-screen { height: 100%; padding: 84px 20px 16px; display: grid; place-items: center; overflow: hidden; background: radial-gradient(circle at 50% 15%, #fff 0, #f8f5ff 48%, #ede9ff 100%); }
 .welcome-screen img { display: block; width: min(100%, 1536px); max-height: calc(100dvh - 100px); object-fit: contain; border-radius: 18px; box-shadow: 0 18px 55px rgba(63,44,143,.12); }
 
+.workspace-shell { background: #f8f7fc; }
+.workspace-brand { font-size: 17px; font-weight: 750; letter-spacing: -.03em; }
+.workspace-screen { height: 100%; padding: 120px 32px 88px; overflow-y: auto; }
+.workspace-content { width: min(100%, 1000px); margin: 0 auto; }
+.workspace-heading { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 48px; }
+.workspace-eyebrow { color: var(--purple); font-size: 11px; font-weight: 750; letter-spacing: .09em; text-transform: uppercase; }
+.workspace-heading h1 { margin: 10px 0; font-size: clamp(30px, 4vw, 42px); font-weight: 650; letter-spacing: -.04em; }
+.workspace-heading p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.6; }
+.workspace-new { display: flex; flex-shrink: 0; align-items: center; gap: 8px; height: 46px; }
+.workspace-new > span { font-size: 22px; font-weight: 400; }
+.workspace-new:disabled { opacity: .5; cursor: wait; }
+.workspace-list-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.workspace-list-heading h2 { margin: 0; color: #555160; font-size: 13px; font-weight: 650; }
+.workspace-list-heading > span { color: var(--muted); font-size: 12px; }
+.workspace-screen .workspace-maps { gap: 12px; overflow: visible; }
+.workspace-maps .map-row { min-height: 90px; grid-template-columns: minmax(0, 1fr) 36px; padding-right: 18px; border-color: var(--border); background: #fff; box-shadow: 0 2px 8px rgba(28,22,51,.025); }
+.workspace-maps .map-row:hover { border-color: #cfc7f5; box-shadow: 0 5px 18px rgba(28,22,51,.07); }
+.workspace-maps .map-open { min-height: 90px; padding: 18px 20px; gap: 20px; grid-template-columns: 52px minmax(0, 1fr) 20px; }
+.workspace-maps .map-details { gap: 7px; }
+.workspace-maps .map-details strong { font-size: 16px; font-weight: 650; }
+.workspace-maps .map-details small { font-size: 12px; }
+.workspace-maps .map-remove { width: 32px; height: 32px; }
+.workspace-screen .library-empty { padding: 48px 24px; margin: 0; border: 1px dashed #d9d2ee; border-radius: 16px; background: #fff; }
+.workspace-screen .library-empty strong { font-size: 17px; }
+.workspace-screen .library-empty p { margin-top: 10px; font-size: 13px; }
+@media (max-width: 720px) {
+  .workspace-screen { padding: 102px 18px 86px; }
+  .workspace-heading { align-items: flex-start; flex-direction: column; gap: 22px; margin-bottom: 32px; }
+  .workspace-heading p { font-size: 13px; }
+  .workspace-maps .map-row { padding-right: 8px; }
+  .workspace-maps .map-open { padding: 14px 12px; gap: 12px; grid-template-columns: 52px minmax(0, 1fr) 14px; }
+  .workspace-maps .map-details strong { font-size: 14px; }
+}
 
 
 .library-backdrop { position: fixed; z-index: 90; inset: 0; background: rgba(18,15,31,.25); backdrop-filter: blur(2px); }
